@@ -1,0 +1,33 @@
+[project]
+name = "passive-tuning-of-mass-dampers"
+version = "0.1.0"
+description = "Optimization toolkit for passive tuned mass damper optimization using PSO, WOA, and HPW."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=2.0,<3.0",
+  "scipy>=1.14,<2.0",
+  "pandas>=2.2,<3.0",
+  "matplotlib>=3.9,<4.0",
+  "openseespy>=3.7,<4.0",
+  "tqdm>=4.66,<5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<9.0",
+]
+
+[project.scripts]
+tmd = "tmd.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tmd"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
