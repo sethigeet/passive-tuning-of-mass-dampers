@@ -1,0 +1,16 @@
+[paths]
+raw_data = "data/raw"
+processed_data = "data/processed"
+tables = "results/tables"
+figures = "results/figures"
+summary = "results/summary"
+metadata = "results/metadata"
+
+[analysis]
+default_backend = "auto"
+newmark_gamma = 0.5
+newmark_beta = 0.25
+state_space_frequency_points = 512
+
+[reporting]
+dpi = 160

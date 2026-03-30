@@ -1,0 +1,17 @@
+[aliases]
+el_centro = "data/processed/records/el_centro.csv"
+northridge = "data/processed/records/northridge.csv"
+duzce_turkey = "data/processed/records/duzce_turkey.csv"
+hector_mine = "data/processed/records/hector_mine.csv"
+kobe_japan = "data/processed/records/kobe_japan.csv"
+landers = "data/processed/records/landers.csv"
+manjil_iran = "data/processed/records/manjil_iran.csv"
+
+[metadata]
+el_centro = "Imperial Valley El Centro Array #11"
+northridge = "Northridge Beverly Hills"
+duzce_turkey = "Duzce Bolu"
+hector_mine = "Hector Mine Hector"
+kobe_japan = "Kobe Nishi-Akashi"
+landers = "Landers Yermo Fire Station"
+manjil_iran = "Manjil Abbar"

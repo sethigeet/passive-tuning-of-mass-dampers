@@ -1,0 +1,53 @@
+[profiles.fast.global]
+seed = 20260330
+convergence_window = 6
+convergence_tolerance = 1.0e-5
+
+[profiles.fast.pso]
+population = 10
+iterations = 20
+c1 = 2.0
+c2 = 2.0
+inertia_start = 1.0
+inertia_end = 0.2
+
+[profiles.fast.woa]
+population = 10
+iterations = 20
+b = 1.0
+
+[profiles.fast.hpw]
+population = 10
+iterations = 20
+c1 = 2.0
+c2 = 2.0
+inertia_start = 1.0
+inertia_end = 0.2
+b = 1.0
+
+[profiles.full.global]
+seed = 20260330
+convergence_window = 10
+convergence_tolerance = 1.0e-6
+
+[profiles.full.pso]
+population = 30
+iterations = 100
+c1 = 2.0
+c2 = 2.0
+inertia_start = 1.0
+inertia_end = 0.0
+
+[profiles.full.woa]
+population = 30
+iterations = 100
+b = 1.0
+
+[profiles.full.hpw]
+population = 30
+iterations = 100
+c1 = 2.0
+c2 = 2.0
+inertia_start = 1.0
+inertia_end = 0.0
+b = 1.0
