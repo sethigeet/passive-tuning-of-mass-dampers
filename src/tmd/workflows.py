@@ -280,37 +280,6 @@ def publish_simple_table(stem: str, rows: list[dict[str, object]]) -> None:
     write_csv(rows, paths["tables"] / f"{stem}.csv")
 
 
-def validate(
-    backend: str = "auto", profile: str = "fast", progress: bool = False
-) -> dict[str, object]:
-    results = {
-        "example1": run_example(
-            "example1", backend=backend, profile=profile, progress=progress
-        ),
-        "example2": run_example(
-            "example2", backend=backend, profile=profile, progress=progress
-        ),
-    }
-    summary = {}
-    for name, run in results.items():
-        summary[name] = {
-            "mode": run.mode,
-            "top_floor_uncontrolled": float(
-                run.uncontrolled.peak_story_displacements_m[-1]
-            )
-            if run.uncontrolled
-            else None,
-            "algorithms": {
-                algorithm: {
-                    "best_value": result.best_value,
-                    "iterations": result.iterations,
-                }
-                for algorithm, result in run.optimizations.items()
-            },
-        }
-    return summary
-
-
 def git_revision() -> str | None:
     try:
         result = subprocess.run(

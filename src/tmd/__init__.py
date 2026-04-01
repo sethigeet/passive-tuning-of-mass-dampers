@@ -1,4 +1,4 @@
-"""Passive tuned mass damper reproduction toolkit."""
+"""Passive tuned mass damper analysis and optimization toolkit."""
 
 from .benchmarks import get_benchmark
 
