@@ -2,31 +2,14 @@ from __future__ import annotations
 
 import math
 import time
-from dataclasses import dataclass
 from typing import Callable
 
 import numpy as np
 from tqdm.auto import tqdm
 
-from .types import Array, OptimizationResult
+from .types import Array, OptimizationResult, OptimizerConfig
 
 Objective = Callable[[Array], float]
-
-
-@dataclass(frozen=True)
-class OptimizerConfig:
-    population: int
-    iterations: int
-    seed: int
-    convergence_tolerance: float = 1.0e-6
-    convergence_window: int = 10
-    c1: float = 2.0
-    c2: float = 2.0
-    inertia_start: float = 1.0
-    inertia_end: float = 0.0
-    b: float = 1.0
-    show_progress: bool = False
-    progress_label: str = ""
 
 
 def _iteration_range(config: OptimizerConfig):

@@ -1,5 +1,6 @@
 [aliases]
 el_centro = "data/processed/records/el_centro.csv"
+el_centro_2 = "data/processed/records/el_centro_2.csv"
 northridge = "data/processed/records/northridge.csv"
 duzce_turkey = "data/processed/records/duzce_turkey.csv"
 hector_mine = "data/processed/records/hector_mine.csv"
@@ -8,7 +9,8 @@ landers = "data/processed/records/landers.csv"
 manjil_iran = "data/processed/records/manjil_iran.csv"
 
 [metadata]
-el_centro = "Imperial Valley El Centro Array #11"
+el_centro = "Imperial Valley Differential Array"
+el_centro_2 = "Imperial Valley Differential Array 2"
 northridge = "Northridge Beverly Hills"
 duzce_turkey = "Duzce Bolu"
 hector_mine = "Hector Mine Hector"

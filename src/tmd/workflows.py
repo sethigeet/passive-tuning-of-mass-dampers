@@ -1,56 +1,180 @@
 from __future__ import annotations
 
-from pathlib import Path
-import subprocess
 import tomllib
+from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 from tqdm.auto import tqdm
 
-from .analysis import top_floor_displacement_ratio
+from .analysis import floor_displacement_ratio
 from .benchmarks import get_benchmark, with_tmd_mass
 from .io import load_record
-from .models import build_controlled_mck, build_uncontrolled_mck
 from .opensees_model import analyze_with_backend
 from .optimizers import OptimizerConfig, run_optimizer
 from .reference import get_reference_params
 from .reporting import publish_run
-from .state_space import state_space_objective
+from .spectra import (
+    fundamental_period,
+    pseudo_spectral_acceleration,
+    scale_record_to_target_spectral_acceleration,
+)
 from .types import (
+    ALGORITHMS,
+    AlgorithmConfig,
+    AlgorithmName,
     BenchmarkRun,
     BuildingConfig,
     DynamicResponse,
+    GlobalOptimizerSettings,
+    HPWOptimizerSettings,
+    OptimizationProfileSettings,
     OptimizationResult,
+    PSOOptimizerSettings,
     TMDParameters,
+    WOAOptimizerSettings,
 )
-
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _load_algorithm_config() -> dict[str, dict[str, float | int]]:
+def _require_table(value: object, *, context: str) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{context} must be a TOML table.")
+    table: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise ValueError(f"{context} keys must be strings.")
+        table[key] = item
+    return table
+
+
+def _require_int(value: object, *, context: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"{context} must be an integer.")
+    return value
+
+
+def _require_float(value: object, *, context: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{context} must be a float.")
+    if isinstance(value, int | float):
+        return float(value)
+    raise ValueError(f"{context} must be a float.")
+
+
+def _load_global_optimizer_settings(
+    payload: dict[str, object], *, context: str
+) -> GlobalOptimizerSettings:
+    return GlobalOptimizerSettings(
+        seed=_require_int(payload["seed"], context=f"{context}.seed"),
+        convergence_window=_require_int(
+            payload["convergence_window"],
+            context=f"{context}.convergence_window",
+        ),
+        convergence_tolerance=_require_float(
+            payload["convergence_tolerance"],
+            context=f"{context}.convergence_tolerance",
+        ),
+    )
+
+
+def _load_pso_optimizer_settings(
+    payload: dict[str, object], *, context: str
+) -> PSOOptimizerSettings:
+    return PSOOptimizerSettings(
+        population=_require_int(payload["population"], context=f"{context}.population"),
+        iterations=_require_int(payload["iterations"], context=f"{context}.iterations"),
+        c1=_require_float(payload["c1"], context=f"{context}.c1"),
+        c2=_require_float(payload["c2"], context=f"{context}.c2"),
+        inertia_start=_require_float(
+            payload["inertia_start"],
+            context=f"{context}.inertia_start",
+        ),
+        inertia_end=_require_float(
+            payload["inertia_end"], context=f"{context}.inertia_end"
+        ),
+    )
+
+
+def _load_woa_optimizer_settings(
+    payload: dict[str, object], *, context: str
+) -> WOAOptimizerSettings:
+    return WOAOptimizerSettings(
+        population=_require_int(payload["population"], context=f"{context}.population"),
+        iterations=_require_int(payload["iterations"], context=f"{context}.iterations"),
+        b=_require_float(payload["b"], context=f"{context}.b"),
+    )
+
+
+def _load_hpw_optimizer_settings(
+    payload: dict[str, object], *, context: str
+) -> HPWOptimizerSettings:
+    return HPWOptimizerSettings(
+        population=_require_int(payload["population"], context=f"{context}.population"),
+        iterations=_require_int(payload["iterations"], context=f"{context}.iterations"),
+        c1=_require_float(payload["c1"], context=f"{context}.c1"),
+        c2=_require_float(payload["c2"], context=f"{context}.c2"),
+        inertia_start=_require_float(
+            payload["inertia_start"],
+            context=f"{context}.inertia_start",
+        ),
+        inertia_end=_require_float(
+            payload["inertia_end"], context=f"{context}.inertia_end"
+        ),
+        b=_require_float(payload["b"], context=f"{context}.b"),
+    )
+
+
+def _load_profile_settings(
+    payload: dict[str, object], *, context: str
+) -> OptimizationProfileSettings:
+    return OptimizationProfileSettings(
+        global_settings=_load_global_optimizer_settings(
+            _require_table(payload["global"], context=f"{context}.global"),
+            context=f"{context}.global",
+        ),
+        pso=_load_pso_optimizer_settings(
+            _require_table(payload["pso"], context=f"{context}.pso"),
+            context=f"{context}.pso",
+        ),
+        woa=_load_woa_optimizer_settings(
+            _require_table(payload["woa"], context=f"{context}.woa"),
+            context=f"{context}.woa",
+        ),
+        hpw=_load_hpw_optimizer_settings(
+            _require_table(payload["hpw"], context=f"{context}.hpw"),
+            context=f"{context}.hpw",
+        ),
+    )
+
+
+@lru_cache(maxsize=1)
+def _load_algorithm_config() -> AlgorithmConfig:
     with (ROOT / "configs/algorithms.toml").open("rb") as handle:
-        return tomllib.load(handle)
+        payload = tomllib.load(handle)
+    profile_payload = _require_table(payload["profiles"], context="profiles")
+    profiles: dict[str, OptimizationProfileSettings] = {}
+    for profile_name, profile_config in profile_payload.items():
+        profiles[profile_name] = _load_profile_settings(
+            _require_table(profile_config, context=f"profiles.{profile_name}"),
+            context=f"profiles.{profile_name}",
+        )
+    return AlgorithmConfig(profiles=profiles)
 
 
 def _optimizer_config(
-    algorithm: str, profile: str, show_progress: bool = False, progress_label: str = ""
+    algorithm: AlgorithmName,
+    profile: str,
+    show_progress: bool = False,
+    progress_label: str = "",
 ) -> OptimizerConfig:
-    payload = _load_algorithm_config()
-    profiles = payload["profiles"]
-    try:
-        profile_payload = profiles[profile]
-    except KeyError as exc:
-        raise ValueError(f"Unknown optimization profile: {profile}") from exc
-    global_cfg = profile_payload["global"]
-    local = profile_payload[algorithm]
-    merged = {
-        **global_cfg,
-        **local,
-        "show_progress": show_progress,
-        "progress_label": progress_label,
-    }
-    return OptimizerConfig(**merged)
+    profile_settings = _load_algorithm_config().profile(profile)
+    return profile_settings.optimizer_config(
+        algorithm,
+        show_progress=show_progress,
+        progress_label=progress_label,
+    )
 
 
 def _bounds(config: BuildingConfig) -> np.ndarray:
@@ -77,16 +201,21 @@ def _objective_factory(config: BuildingConfig, record, backend: str):
         controlled = analyze_with_backend(
             config, record, params=params, backend=backend
         )
-        transient_ratio = top_floor_displacement_ratio(controlled, uncontrolled_cache)
-        omega = np.linspace(0.1, 40.0, 512)
-        state_ratio = state_space_objective(
-            build_controlled_mck(config, params),
-            build_uncontrolled_mck(config),
-            omega,
-        )
-        return float(0.75 * transient_ratio + 0.25 * state_ratio)
+        return floor_displacement_ratio(controlled, uncontrolled_cache, floor_index=-1)
 
     return objective, uncontrolled_cache
+
+
+def _load_example_record(config: BuildingConfig):
+    return load_record(config.example_record_name)
+
+
+def _scaled_far_field_record(config: BuildingConfig, record_name: str):
+    record = load_record(record_name)
+    target = load_record(config.far_field_target_record_name)
+    period = fundamental_period(config)
+    target_sa = pseudo_spectral_acceleration(target, period)
+    return scale_record_to_target_spectral_acceleration(record, target_sa, period)
 
 
 def _optimize_algorithms_for_record(
@@ -95,7 +224,7 @@ def _optimize_algorithms_for_record(
     objective, uncontrolled = _objective_factory(config, record, backend)
     optimizations: dict[str, OptimizationResult] = {}
     controlled: dict[str, DynamicResponse] = {}
-    for algorithm in ("pso", "woa", "hpw"):
+    for algorithm in ALGORITHMS:
         label = f"{record.name}:{algorithm.upper()}"
         result = run_optimizer(
             algorithm,
@@ -175,7 +304,7 @@ def run_example(
 ) -> BenchmarkRun:
     config = get_benchmark(name)
     notes: list[str] = []
-    record = load_record("el_centro")
+    record = _load_example_record(config)
     uncontrolled, optimizations, controlled = _optimize_algorithms_for_record(
         config, record, backend, profile, progress=progress
     )
@@ -198,7 +327,7 @@ def run_example(
 
 def run_mass_sweep(backend: str = "auto") -> dict[str, object]:
     config = get_benchmark("example1")
-    record = load_record("el_centro")
+    record = _load_example_record(config)
     rows = []
     for mass in (90.0, 96.0, 100.0, 104.0, 108.0, 112.0, 116.0):
         tuned_config = with_tmd_mass(config, mass)
@@ -219,7 +348,7 @@ def run_mass_sweep(backend: str = "auto") -> dict[str, object]:
     return {"mode": "simulate", "rows": rows}
 
 
-def _run_far_field_simulate(
+def run_far_field(
     backend: str = "auto", profile: str = "full", progress: bool = False
 ) -> dict[str, object]:
     config = get_benchmark("example1")
@@ -238,7 +367,7 @@ def _run_far_field_simulate(
             record_names, desc="Far-field records", dynamic_ncols=True
         )
     for label, record_name in record_iterable:
-        record = load_record(record_name)
+        record, scale_factor = _scaled_far_field_record(config, record_name)
         uncontrolled, optimizations, controlled_map = _optimize_algorithms_for_record(
             config, record, backend, profile, progress=progress
         )
@@ -258,6 +387,7 @@ def _run_far_field_simulate(
                 "objective": float(result.best_value),
                 "iterations": int(result.iterations),
                 "runtime_s": float(result.runtime_s),
+                "scale_factor": float(scale_factor),
                 "profile": profile,
             }
             for index, value in enumerate(story_reduction, start=1):
@@ -267,28 +397,8 @@ def _run_far_field_simulate(
     return {"mode": "simulate", "rows": rows}
 
 
-def run_far_field(
-    backend: str = "auto", profile: str = "full", progress: bool = False
-) -> dict[str, object]:
-    return _run_far_field_simulate(backend=backend, profile=profile, progress=progress)
-
-
 def publish_simple_table(stem: str, rows: list[dict[str, object]]) -> None:
     from .reporting import ensure_result_dirs, write_csv
 
     paths = ensure_result_dirs(ROOT)
     write_csv(rows, paths["tables"] / f"{stem}.csv")
-
-
-def git_revision() -> str | None:
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except Exception:
-        return None
-    return result.stdout.strip()

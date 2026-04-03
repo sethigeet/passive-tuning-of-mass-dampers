@@ -15,6 +15,8 @@ _BENCHMARKS = {
         stiffness_bounds_kn_per_m=(0.0, 5000.0),
         damping_bounds_kns_per_m=(0.0, 1000.0),
         required_records=("el_centro",),
+        example_record_name="el_centro",
+        far_field_target_record_name="el_centro",
     ),
     "example2": BuildingConfig(
         name="example2",
@@ -57,7 +59,9 @@ _BENCHMARKS = {
         tmd_mass_ton=108.0,
         stiffness_bounds_kn_per_m=(0.0, 500.0),
         damping_bounds_kns_per_m=(0.0, 150.0),
-        required_records=("el_centro",),
+        required_records=("el_centro_2",),
+        example_record_name="el_centro_2",
+        far_field_target_record_name="el_centro",
     ),
 }
 

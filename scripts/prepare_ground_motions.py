@@ -10,7 +10,6 @@ from pathlib import Path
 
 from tmd.io import load_peer_at2
 
-
 ROOT = Path(__file__).resolve().parents[1]
 RAW_ROOT = ROOT / "data/raw"
 REFERENCE_ROOT = ROOT / "data/processed/records"
@@ -24,7 +23,8 @@ EXTRACTED_ROOT = (
 MANIFEST_PATH = ROOT / "configs/records.toml"
 
 RECORD_SPECS = {
-    "el_centro": ("IMPVALL/H-E11140.AT2", "Imperial Valley El Centro Array #11"),
+    "el_centro": ("IMPVALL/H-DLT352.AT2", "Imperial Valley Differential Array"),
+    "el_centro_2": ("IMPVALL/H-DLT262.AT2", "Imperial Valley Differential Array 2"),
     "northridge": ("NORTHR/MUL279.AT2", "Northridge Beverly Hills"),
     "duzce_turkey": ("DUZCE/BOL090.AT2", "Duzce Bolu"),
     "hector_mine": ("HECTOR/HEC090.AT2", "Hector Mine Hector"),

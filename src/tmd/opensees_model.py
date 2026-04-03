@@ -46,9 +46,7 @@ def _build_opensees_model(config: BuildingConfig, params: TMDParameters | None) 
             "Viscous", dash_tag, config.story_damping_kns_per_m[story - 1] * 1000.0, 1.0
         )
         ops.uniaxialMaterial("Parallel", mat_tag, spring_tag, dash_tag)
-        ops.element(
-            "zeroLength", 4000 + story, story - 1, story, "-mat", mat_tag, "-dir", 1
-        )
+        ops.element("twoNodeLink", 4000 + story, story - 1, story, "-mat", mat_tag, "-dir", 1)
     if params is not None:
         tmd_node = config.n_stories + 1
         ops.node(tmd_node, float(tmd_node))
@@ -61,16 +59,14 @@ def _build_opensees_model(config: BuildingConfig, params: TMDParameters | None) 
             "Viscous", dash_tag, params.damping_kns_per_m * 1000.0, 1.0
         )
         ops.uniaxialMaterial("Parallel", mat_tag, spring_tag, dash_tag)
-        ops.element(
-            "zeroLength", 5004, config.n_stories, tmd_node, "-mat", mat_tag, "-dir", 1
-        )
+        ops.element("twoNodeLink", 5004, config.n_stories, tmd_node, "-mat", mat_tag, "-dir", 1)
 
 
 def _run_opensees_transient(
     config: BuildingConfig, record: Record, params: TMDParameters | None
 ) -> DynamicResponse:
     _build_opensees_model(config, params)
-    ts_values = list((-record.accel_mps2).tolist())
+    ts_values = list(record.accel_mps2.tolist())
     ops.timeSeries("Path", 1, "-dt", record.dt, "-values", *ts_values)
     ops.pattern("UniformExcitation", 1, 1, "-accel", 1)
     ops.constraints("Plain")
@@ -85,6 +81,8 @@ def _run_opensees_transient(
     if params is not None:
         nodes.append(config.n_stories + 1)
     displacements = np.zeros((len(record.time), len(nodes)), dtype=float)
+    velocities = np.zeros_like(displacements)
+    accelerations = np.zeros_like(displacements)
     for step in range(len(record.time)):
         if step > 0:
             code = ops.analyze(1, record.dt)
@@ -94,15 +92,17 @@ def _run_opensees_transient(
                 )
         for index, node in enumerate(nodes):
             displacements[step, index] = ops.nodeDisp(node, 1)
+            velocities[step, index] = ops.nodeVel(node, 1)
+            accelerations[step, index] = ops.nodeAccel(node, 1)
     story_disp = displacements[:, : config.n_stories]
+    story_vel = velocities[:, : config.n_stories]
+    story_acc = accelerations[:, : config.n_stories]
     peaks = np.max(np.abs(story_disp), axis=0)
-    velocity = np.gradient(story_disp, record.dt, axis=0)
-    acceleration = np.gradient(velocity, record.dt, axis=0)
     return DynamicResponse(
         time=record.time,
         relative_displacements_m=story_disp,
-        relative_velocities_mps=velocity,
-        relative_accelerations_mps2=acceleration,
+        relative_velocities_mps=story_vel,
+        relative_accelerations_mps2=story_acc,
         peak_story_displacements_m=peaks,
         objective_value=float(peaks[-1]),
         metadata={"solver": "openseespy"},

@@ -42,6 +42,7 @@ This script:
 The benchmark workflows use these prepared aliases:
 
 - `el_centro`
+- `el_centro_example2`
 - `northridge`
 - `duzce_turkey`
 - `hector_mine`
@@ -65,6 +66,14 @@ Available commands:
 - `run mass-sweep`
 - `run far-field`
 - `run all`
+
+Workflow meanings:
+
+- `example1` runs the paper's first 10-story benchmark under its reference record and optimizes TMD stiffness and damping with PSO, WOA, and HPW.
+- `example2` runs the paper's second 10-story benchmark under its own reference record and performs the same TMD optimization study.
+- `mass-sweep` keeps the Example 1 reference PSO tuning and varies only the TMD mass to reproduce the mass-sensitivity study.
+- `far-field` reruns the Example 1 optimization workflow across the selected FEMA P695 far-field records after scaling them to the target spectral acceleration.
+- `all` runs `example1`, `example2`, `mass-sweep`, and `far-field` in sequence.
 
 Common options:
 

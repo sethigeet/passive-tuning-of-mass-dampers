@@ -2,6 +2,7 @@ import json
 from types import SimpleNamespace
 
 from tmd import cli
+from tmd.benchmarks import get_benchmark
 from tmd.io import load_record, synthetic_record
 from tmd.workflows import run_example
 
@@ -50,6 +51,19 @@ def test_example2_fast_workflow_runs(monkeypatch):
     assert set(run.controlled) == {"pso", "woa", "hpw"}
     assert run.uncontrolled is not None
     assert run.uncontrolled.peak_story_displacements_m[-1] > 0.0
+
+
+def test_example2_uses_benchmark_specific_record(monkeypatch):
+    loaded: list[str] = []
+    monkeypatch.setattr("tmd.workflows.publish_run", lambda root, run: {})
+    monkeypatch.setattr(
+        "tmd.workflows.load_record",
+        lambda name: loaded.append(name) or synthetic_record(name, duration_s=0.5, dt=0.05),
+    )
+
+    run_example("example2", backend="numpy", profile="fast", progress=False)
+
+    assert loaded[0] == get_benchmark("example2").example_record_name
 
 
 def test_cli_run_subcommand_emits_json(monkeypatch, capsys):

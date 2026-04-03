@@ -79,12 +79,12 @@ def analyze_controlled(
     return response
 
 
-def top_floor_displacement_ratio(
-    controlled: DynamicResponse, uncontrolled: DynamicResponse
+def floor_displacement_ratio(
+    controlled: DynamicResponse, uncontrolled: DynamicResponse, floor_index: int
 ) -> float:
     return float(
-        controlled.peak_story_displacements_m[-1]
-        / uncontrolled.peak_story_displacements_m[-1]
+        controlled.peak_story_displacements_m[floor_index]
+        / uncontrolled.peak_story_displacements_m[floor_index]
     )
 
 
