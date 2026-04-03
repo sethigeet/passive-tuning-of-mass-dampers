@@ -58,7 +58,9 @@ def test_example2_uses_benchmark_specific_record(monkeypatch):
     monkeypatch.setattr("tmd.workflows.publish_run", lambda root, run: {})
     monkeypatch.setattr(
         "tmd.workflows.load_record",
-        lambda name: loaded.append(name) or synthetic_record(name, duration_s=0.5, dt=0.05),
+        lambda name: (
+            loaded.append(name) or synthetic_record(name, duration_s=0.5, dt=0.05)
+        ),
     )
 
     run_example("example2", backend="numpy", profile="fast", progress=False)

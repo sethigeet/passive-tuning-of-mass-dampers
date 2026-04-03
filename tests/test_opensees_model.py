@@ -14,7 +14,9 @@ def test_opensees_backend_tracks_numpy_backend_for_short_record():
     record = synthetic_record("short", duration_s=0.5, dt=0.05)
     params = get_reference_params("example1", "pso")
 
-    numpy_response = analyze_with_backend(config, record, params=params, backend="numpy")
+    numpy_response = analyze_with_backend(
+        config, record, params=params, backend="numpy"
+    )
     opensees_response = analyze_with_backend(
         config, record, params=params, backend="opensees"
     )

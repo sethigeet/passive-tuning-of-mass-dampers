@@ -44,7 +44,9 @@ def _build_opensees_model(config: BuildingConfig, params: TMDParameters | None) 
             "Viscous", dash_tag, config.story_damping_kns_per_m[story - 1] * 1000.0, 1.0
         )
         ops.uniaxialMaterial("Parallel", mat_tag, spring_tag, dash_tag)
-        ops.element("twoNodeLink", 4000 + story, story - 1, story, "-mat", mat_tag, "-dir", 1)
+        ops.element(
+            "twoNodeLink", 4000 + story, story - 1, story, "-mat", mat_tag, "-dir", 1
+        )
     if params is not None:
         tmd_node = config.n_stories + 1
         ops.node(tmd_node, float(tmd_node))
@@ -57,7 +59,9 @@ def _build_opensees_model(config: BuildingConfig, params: TMDParameters | None) 
             "Viscous", dash_tag, params.damping_kns_per_m * 1000.0, 1.0
         )
         ops.uniaxialMaterial("Parallel", mat_tag, spring_tag, dash_tag)
-        ops.element("twoNodeLink", 5004, config.n_stories, tmd_node, "-mat", mat_tag, "-dir", 1)
+        ops.element(
+            "twoNodeLink", 5004, config.n_stories, tmd_node, "-mat", mat_tag, "-dir", 1
+        )
 
 
 def _run_opensees_transient(

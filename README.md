@@ -42,7 +42,7 @@ This script:
 The benchmark workflows use these prepared aliases:
 
 - `el_centro`
-- `el_centro_example2`
+- `el_centro_2`
 - `northridge`
 - `duzce_turkey`
 - `hector_mine`

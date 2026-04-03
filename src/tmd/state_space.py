@@ -47,6 +47,4 @@ def state_space_objective(
     transfer_ratio = np.max(np.abs(hc[:, 0])) / max(np.max(np.abs(hu[:, 0])), 1e-12)
     if first_floor_displacement_ratio is None:
         return float(transfer_ratio)
-    return float(
-        transfer_ratio + max(first_floor_displacement_ratio, 0.0)
-    )
+    return float(transfer_ratio + max(first_floor_displacement_ratio, 0.0))

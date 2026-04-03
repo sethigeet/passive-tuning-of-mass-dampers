@@ -54,6 +54,8 @@ def scale_record_to_target_spectral_acceleration(
 ) -> tuple[Record, float]:
     source_sa = pseudo_spectral_acceleration(record, period_s, damping_ratio)
     if source_sa <= 0.0:
-        raise ValueError(f"Record {record.name} has non-positive spectral acceleration.")
+        raise ValueError(
+            f"Record {record.name} has non-positive spectral acceleration."
+        )
     scale_factor = target_sa_mps2 / source_sa
     return scale_record(record, scale_factor, name=record.name), float(scale_factor)
