@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .analysis import analyze_controlled, analyze_uncontrolled
+from .models import resolve_tmd_installation_floor
 from .types import BuildingConfig, DynamicResponse, Record, TMDParameters
 
 try:
@@ -49,6 +50,7 @@ def _build_opensees_model(config: BuildingConfig, params: TMDParameters | None) 
         )
     if params is not None:
         tmd_node = config.n_stories + 1
+        installation_floor = resolve_tmd_installation_floor(config, params)
         ops.node(tmd_node, float(tmd_node))
         ops.mass(tmd_node, params.mass_ton * 1000.0)
         spring_tag = 5001
@@ -60,7 +62,14 @@ def _build_opensees_model(config: BuildingConfig, params: TMDParameters | None) 
         )
         ops.uniaxialMaterial("Parallel", mat_tag, spring_tag, dash_tag)
         ops.element(
-            "twoNodeLink", 5004, config.n_stories, tmd_node, "-mat", mat_tag, "-dir", 1
+            "twoNodeLink",
+            5004,
+            installation_floor,
+            tmd_node,
+            "-mat",
+            mat_tag,
+            "-dir",
+            1,
         )
 
 

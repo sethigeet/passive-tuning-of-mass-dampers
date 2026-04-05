@@ -16,13 +16,15 @@ def test_uncontrolled_matrices_have_expected_shape_and_symmetry():
     assert np.allclose(k, k.T)
 
 
-def test_controlled_matrices_add_tmd_coupling_only_at_roof_and_tmd():
+def test_controlled_matrices_add_tmd_coupling_at_selected_floor_and_tmd():
     config = get_benchmark("example1")
-    params = TMDParameters(config.tmd_mass_ton, 4136.0, 117.5)
+    params = TMDParameters(config.tmd_mass_ton, 4136.0, 117.5, installation_floor=4)
     _, c, k = build_controlled_mck(config, params)
-    roof = config.n_stories - 1
+    floor_index = 3
     tmd = config.n_stories
-    assert k[roof, tmd] < 0.0
-    assert k[tmd, roof] < 0.0
-    assert c[roof, tmd] < 0.0
-    assert c[tmd, roof] < 0.0
+    assert k[floor_index, tmd] < 0.0
+    assert k[tmd, floor_index] < 0.0
+    assert c[floor_index, tmd] < 0.0
+    assert c[tmd, floor_index] < 0.0
+    assert np.allclose(k[: floor_index, tmd], 0.0)
+    assert np.allclose(k[floor_index + 1 : tmd, tmd], 0.0)

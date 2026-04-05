@@ -32,6 +32,17 @@ def build_uncontrolled_mck(config: BuildingConfig) -> tuple[Array, Array, Array]
     return masses, damping, stiffness
 
 
+def resolve_tmd_installation_floor(config: BuildingConfig, params: TMDParameters) -> int:
+    floor = config.n_stories if params.installation_floor is None else params.installation_floor
+    if isinstance(floor, bool) or not isinstance(floor, int):
+        raise ValueError("TMD installation floor must be an integer story index.")
+    if floor < 1 or floor > config.n_stories:
+        raise ValueError(
+            f"TMD installation floor must be between 1 and {config.n_stories}."
+        )
+    return floor
+
+
 def build_controlled_mck(
     config: BuildingConfig, params: TMDParameters
 ) -> tuple[Array, Array, Array]:
@@ -49,16 +60,16 @@ def build_controlled_mck(
     kd = params.stiffness_kn_per_m * KN_TO_N
     cd = params.damping_kns_per_m * KN_TO_N
 
-    roof = n - 1
-    k_aug[roof, roof] += kd
+    floor_index = resolve_tmd_installation_floor(config, params) - 1
+    k_aug[floor_index, floor_index] += kd
     k_aug[n, n] += kd
-    k_aug[roof, n] -= kd
-    k_aug[n, roof] -= kd
+    k_aug[floor_index, n] -= kd
+    k_aug[n, floor_index] -= kd
 
-    c_aug[roof, roof] += cd
+    c_aug[floor_index, floor_index] += cd
     c_aug[n, n] += cd
-    c_aug[roof, n] -= cd
-    c_aug[n, roof] -= cd
+    c_aug[floor_index, n] -= cd
+    c_aug[n, floor_index] -= cd
     return m_aug, c_aug, k_aug
 
 

@@ -86,6 +86,14 @@ def floor_displacement_ratio(
     )
 
 
+def global_peak_displacement_ratio(
+    controlled: DynamicResponse, uncontrolled: DynamicResponse
+) -> float:
+    controlled_peak = float(np.max(controlled.peak_story_displacements_m))
+    uncontrolled_peak = float(np.max(uncontrolled.peak_story_displacements_m))
+    return controlled_peak / max(uncontrolled_peak, 1.0e-12)
+
+
 def write_record_csv(record: Record, destination: Path) -> None:
     payload = np.column_stack((record.time, record.accel_mps2 / 9.80665))
     np.savetxt(destination, payload, delimiter=",", header="time,accel_g", comments="")

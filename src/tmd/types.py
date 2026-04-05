@@ -173,6 +173,7 @@ class TMDParameters:
     mass_ton: float
     stiffness_kn_per_m: float
     damping_kns_per_m: float
+    installation_floor: int | None = None
 
 
 @dataclass(frozen=True)

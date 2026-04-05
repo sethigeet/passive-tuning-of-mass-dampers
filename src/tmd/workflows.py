@@ -185,21 +185,27 @@ def _bounds(config: BuildingConfig) -> np.ndarray:
     )
 
 
+def _position_to_params(config: BuildingConfig, position: np.ndarray) -> TMDParameters:
+    floor = int(np.clip(np.rint(position[0]), 1, config.n_stories))
+    return TMDParameters(
+        mass_ton=float(position[1]),
+        stiffness_kn_per_m=float(position[2]),
+        damping_kns_per_m=float(position[3]),
+        installation_floor=floor,
+    )
+
+
 def _objective_factory(config: BuildingConfig, record, backend: str):
     uncontrolled_cache = analyze_with_backend(
         config, record, params=None, backend=backend
     )
 
     def objective(position: np.ndarray) -> float:
-        params = TMDParameters(
-            mass_ton=config.tmd_mass_ton,
-            stiffness_kn_per_m=float(position[0]),
-            damping_kns_per_m=float(position[1]),
-        )
+        params = _position_to_params(config, position)
         controlled = analyze_with_backend(
             config, record, params=params, backend=backend
         )
-        return floor_displacement_ratio(controlled, uncontrolled_cache, floor_index=-1)
+        return global_peak_displacement_ratio(controlled, uncontrolled_cache)
 
     return objective, uncontrolled_cache
 
@@ -232,11 +238,7 @@ def _optimize_algorithms_for_record(
                 algorithm, profile, show_progress=progress, progress_label=label
             ),
         )
-        params = TMDParameters(
-            mass_ton=config.tmd_mass_ton,
-            stiffness_kn_per_m=float(result.best_position[0]),
-            damping_kns_per_m=float(result.best_position[1]),
-        )
+        params = _position_to_params(config, result.best_position)
         optimizations[algorithm] = result
         controlled[algorithm] = analyze_with_backend(
             config, record, params=params, backend=backend
