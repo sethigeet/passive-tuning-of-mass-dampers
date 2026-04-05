@@ -245,13 +245,21 @@ def _objective_factory(config: BuildingConfig, record, backend: str):
     uncontrolled_cache = analyze_with_backend(
         config, record, params=None, backend=backend
     )
+    _eval_cache: dict[bytes, float] = {}
 
     def objective(position: np.ndarray) -> float:
+        key = position.tobytes()
+        cached = _eval_cache.get(key)
+        if cached is not None:
+            return cached
+
         params = _position_to_params(config, position)
         controlled = analyze_with_backend(
             config, record, params=params, backend=backend
         )
-        return _global_peak_displacement_ratio(controlled, uncontrolled_cache)
+        result = _global_peak_displacement_ratio(controlled, uncontrolled_cache)
+        _eval_cache[key] = result
+        return result
 
     return objective, uncontrolled_cache
 
