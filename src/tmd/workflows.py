@@ -1,4 +1,6 @@
+import os
 import tomllib
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import replace
 from functools import lru_cache
 from pathlib import Path
@@ -241,26 +243,99 @@ def _global_peak_displacement_ratio(
     return controlled_peak / max(uncontrolled_peak, 1.0e-12)
 
 
+class _ObjectiveEvaluator:
+    """Picklable single-evaluation callable for use in worker processes."""
+
+    def __init__(
+        self,
+        config: BuildingConfig,
+        record,
+        backend: str,
+        uncontrolled: DynamicResponse,
+    ):
+        self._config = config
+        self._record = record
+        self._backend = backend
+        self._uncontrolled = uncontrolled
+
+    def __call__(self, position: np.ndarray) -> float:
+        params = _position_to_params(self._config, position)
+        controlled = analyze_with_backend(
+            self._config, self._record, params=params, backend=self._backend
+        )
+        return _global_peak_displacement_ratio(controlled, self._uncontrolled)
+
+
+_worker_evaluator: _ObjectiveEvaluator | None = None
+
+
+def _init_worker(evaluator: _ObjectiveEvaluator) -> None:
+    global _worker_evaluator
+    _worker_evaluator = evaluator
+
+
+def _worker_evaluate(position: np.ndarray) -> float:
+    assert _worker_evaluator is not None
+    return _worker_evaluator(position)
+
+
+class BatchObjective:
+    """Objective function with caching and parallel batch evaluation."""
+
+    def __init__(
+        self, evaluator: _ObjectiveEvaluator, max_workers: int | None = None
+    ):
+        self._evaluator = evaluator
+        self._cache: dict[bytes, float] = {}
+        self._max_workers = max_workers or os.cpu_count() or 1
+        self._pool: ProcessPoolExecutor | None = None
+
+    def __call__(self, position: np.ndarray) -> float:
+        key = position.tobytes()
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        result = self._evaluator(position)
+        self._cache[key] = result
+        return result
+
+    def batch(self, positions: np.ndarray) -> np.ndarray:
+        """Evaluate a batch of positions in parallel, utilizing the cache."""
+        keys = [pos.tobytes() for pos in positions]
+        results: list[float | None] = [self._cache.get(k) for k in keys]
+
+        uncached = [(i, positions[i]) for i, r in enumerate(results) if r is None]
+        if not uncached:
+            return np.array(results, dtype=float)
+
+        uncached_indices, uncached_positions = zip(*uncached)
+
+        if self._pool is None:
+            self._pool = ProcessPoolExecutor(
+                max_workers=self._max_workers,
+                initializer=_init_worker,
+                initargs=(self._evaluator,),
+            )
+
+        computed = list(self._pool.map(_worker_evaluate, uncached_positions))
+        for idx, val in zip(uncached_indices, computed):
+            results[idx] = val
+            self._cache[keys[idx]] = val
+
+        return np.array(results, dtype=float)
+
+    def shutdown(self) -> None:
+        if self._pool is not None:
+            self._pool.shutdown(wait=True)
+            self._pool = None
+
+
 def _objective_factory(config: BuildingConfig, record, backend: str):
     uncontrolled_cache = analyze_with_backend(
         config, record, params=None, backend=backend
     )
-    _eval_cache: dict[bytes, float] = {}
-
-    def objective(position: np.ndarray) -> float:
-        key = position.tobytes()
-        cached = _eval_cache.get(key)
-        if cached is not None:
-            return cached
-
-        params = _position_to_params(config, position)
-        controlled = analyze_with_backend(
-            config, record, params=params, backend=backend
-        )
-        result = _global_peak_displacement_ratio(controlled, uncontrolled_cache)
-        _eval_cache[key] = result
-        return result
-
+    evaluator = _ObjectiveEvaluator(config, record, backend, uncontrolled_cache)
+    objective = BatchObjective(evaluator)
     return objective, uncontrolled_cache
 
 
@@ -282,21 +357,24 @@ def _optimize_algorithms_for_record(
     objective, uncontrolled = _objective_factory(config, record, backend)
     optimizations: dict[str, OptimizationResult] = {}
     controlled: dict[str, DynamicResponse] = {}
-    for algorithm in WORKFLOW_ALGORITHMS:
-        label = f"{record.name}:{algorithm.upper()}"
-        result = run_optimizer(
-            algorithm,
-            objective,
-            _bounds(config),
-            _optimizer_config(
-                algorithm, profile, show_progress=progress, progress_label=label
-            ),
-        )
-        params = _position_to_params(config, result.best_position)
-        optimizations[algorithm] = result
-        controlled[algorithm] = analyze_with_backend(
-            config, record, params=params, backend=backend
-        )
+    try:
+        for algorithm in WORKFLOW_ALGORITHMS:
+            label = f"{record.name}:{algorithm.upper()}"
+            result = run_optimizer(
+                algorithm,
+                objective,
+                _bounds(config),
+                _optimizer_config(
+                    algorithm, profile, show_progress=progress, progress_label=label
+                ),
+            )
+            params = _position_to_params(config, result.best_position)
+            optimizations[algorithm] = result
+            controlled[algorithm] = analyze_with_backend(
+                config, record, params=params, backend=backend
+            )
+    finally:
+        objective.shutdown()
     return uncontrolled, optimizations, controlled
 
 

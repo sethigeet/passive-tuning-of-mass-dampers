@@ -10,6 +10,13 @@ from .types import Array, OptimizationResult, OptimizerConfig
 Objective = Callable[[Array], float]
 
 
+def _evaluate_batch(objective: Objective, positions: Array) -> Array:
+    """Evaluate objective for all positions, using parallel batch if available."""
+    if hasattr(objective, "batch"):
+        return objective.batch(positions)
+    return np.array([objective(p) for p in positions])
+
+
 def _iteration_range(config: OptimizerConfig):
     if not config.show_progress:
         return range(config.iterations)
@@ -116,7 +123,7 @@ def optimize_ga(
     rng = np.random.default_rng(config.seed)
     integer_indices = tuple(config.integer_indices)
     positions = _random_population(bounds, config.population, rng, integer_indices)
-    values = np.array([objective(position) for position in positions])
+    values = _evaluate_batch(objective, positions)
     best_idx = int(np.argmin(values))
     best_position = positions[best_idx].copy()
     best_value = float(values[best_idx])
@@ -142,7 +149,7 @@ def optimize_ga(
                 _mutate(child, bounds, rng, config, integer_indices)
             )
         positions = np.array(next_positions)
-        values = np.array([objective(position) for position in positions])
+        values = _evaluate_batch(objective, positions)
         best_idx = int(np.argmin(values))
         if values[best_idx] < best_value:
             best_value = float(values[best_idx])
@@ -172,7 +179,7 @@ def optimize_gahpw(
     positions = _random_population(bounds, config.population, rng, integer_indices)
     velocities = np.zeros_like(positions)
     personal_best = positions.copy()
-    personal_values = np.array([objective(position) for position in positions])
+    personal_values = _evaluate_batch(objective, positions)
     best_idx = int(np.argmin(personal_values))
     global_best = personal_best[best_idx].copy()
     global_value = float(personal_values[best_idx])
@@ -200,7 +207,7 @@ def optimize_gahpw(
             )
         positions = np.array(next_positions)
 
-        values = np.array([objective(position) for position in positions])
+        values = _evaluate_batch(objective, positions)
         improved = values < personal_values
         personal_best[improved] = positions[improved]
         personal_values[improved] = values[improved]
@@ -222,7 +229,7 @@ def optimize_gahpw(
             + config.c2 * r2 * (global_best - positions)
         )
         positions = _repair_positions(positions + velocities, bounds, integer_indices)
-        values = np.array([objective(position) for position in positions])
+        values = _evaluate_batch(objective, positions)
         improved = values < personal_values
         personal_best[improved] = positions[improved]
         personal_values[improved] = values[improved]
@@ -256,7 +263,7 @@ def optimize_gahpw(
                 )
             positions[i] = _repair_position(new_pos, bounds, integer_indices)
 
-        values = np.array([objective(position) for position in positions])
+        values = _evaluate_batch(objective, positions)
         improved = values < personal_values
         personal_best[improved] = positions[improved]
         personal_values[improved] = values[improved]
@@ -290,7 +297,7 @@ def optimize_pso(
     positions = _random_population(bounds, config.population, rng, integer_indices)
     velocities = np.zeros_like(positions)
     personal_best = positions.copy()
-    personal_values = np.array([objective(p) for p in positions])
+    personal_values = _evaluate_batch(objective, positions)
     best_idx = int(np.argmin(personal_values))
     global_best = personal_best[best_idx].copy()
     global_value = float(personal_values[best_idx])
@@ -312,7 +319,7 @@ def optimize_pso(
             + config.c2 * r2 * (global_best - positions)
         )
         positions = _repair_positions(positions + velocities, bounds, integer_indices)
-        values = np.array([objective(p) for p in positions])
+        values = _evaluate_batch(objective, positions)
         improved = values < personal_values
         personal_best[improved] = positions[improved]
         personal_values[improved] = values[improved]
@@ -343,7 +350,7 @@ def optimize_woa(
     integer_indices = tuple(config.integer_indices)
     dimensions = bounds.shape[0]
     positions = _random_population(bounds, config.population, rng, integer_indices)
-    values = np.array([objective(p) for p in positions])
+    values = _evaluate_batch(objective, positions)
     best_idx = int(np.argmin(values))
     best_position = positions[best_idx].copy()
     best_value = float(values[best_idx])
@@ -376,7 +383,7 @@ def optimize_woa(
                     + best_position
                 )
             positions[i] = _repair_position(new_pos, bounds, integer_indices)
-        values = np.array([objective(p) for p in positions])
+        values = _evaluate_batch(objective, positions)
         best_idx = int(np.argmin(values))
         if values[best_idx] < best_value:
             best_value = float(values[best_idx])
@@ -406,7 +413,7 @@ def optimize_hpw(
     positions = _random_population(bounds, config.population, rng, integer_indices)
     velocities = np.zeros_like(positions)
     personal_best = positions.copy()
-    personal_values = np.array([objective(p) for p in positions])
+    personal_values = _evaluate_batch(objective, positions)
     best_idx = int(np.argmin(personal_values))
     global_best = personal_best[best_idx].copy()
     global_value = float(personal_values[best_idx])
@@ -428,7 +435,7 @@ def optimize_hpw(
             + config.c2 * r2 * (global_best - positions)
         )
         positions = _repair_positions(positions + velocities, bounds, integer_indices)
-        values = np.array([objective(p) for p in positions])
+        values = _evaluate_batch(objective, positions)
         improved = values < personal_values
         personal_best[improved] = positions[improved]
         personal_values[improved] = values[improved]
@@ -462,7 +469,7 @@ def optimize_hpw(
                 )
             positions[i] = _repair_position(new_pos, bounds, integer_indices)
 
-        values = np.array([objective(p) for p in positions])
+        values = _evaluate_batch(objective, positions)
         improved = values < personal_values
         personal_best[improved] = positions[improved]
         personal_values[improved] = values[improved]
