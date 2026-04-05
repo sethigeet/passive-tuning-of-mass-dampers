@@ -3,7 +3,7 @@ import math
 import numpy as np
 from scipy import linalg
 
-from .analysis import newmark_linear
+from .integration import newmark_linear
 from .models import build_uncontrolled_mck
 from .types import BuildingConfig, Record
 

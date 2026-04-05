@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .benchmarks import record_candidates
+from .examples import record_candidates
 from .types import Record
 
 ROOT = Path(__file__).resolve().parents[2]

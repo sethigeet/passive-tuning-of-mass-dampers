@@ -1,6 +1,6 @@
 import pytest
 
-from tmd.benchmarks import get_benchmark
+from tmd.examples import get_example_config
 from tmd.io import load_record
 from tmd.spectra import (
     fundamental_period,
@@ -10,7 +10,7 @@ from tmd.spectra import (
 
 
 def test_far_field_record_scaling_matches_target_spectral_acceleration():
-    config = get_benchmark("example1")
+    config = get_example_config("example1")
     period = fundamental_period(config)
     target = load_record(config.far_field_target_record_name)
     target_sa = pseudo_spectral_acceleration(target, period)

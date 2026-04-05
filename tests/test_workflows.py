@@ -2,7 +2,7 @@ import json
 from types import SimpleNamespace
 
 from tmd import cli
-from tmd.benchmarks import get_benchmark
+from tmd.examples import get_example_config
 from tmd.io import load_record, synthetic_record
 from tmd.workflows import run_example
 
@@ -69,7 +69,7 @@ def test_example2_uses_benchmark_specific_record(monkeypatch):
 
     run_example("example2", backend="numpy", profile="fast", progress=False)
 
-    assert loaded[0] == get_benchmark("example2").example_record_name
+    assert loaded[0] == get_example_config("example2").example_record_name
 
 
 def test_cli_run_subcommand_emits_json(monkeypatch, capsys):

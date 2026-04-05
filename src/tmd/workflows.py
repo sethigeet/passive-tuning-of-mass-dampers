@@ -6,10 +6,9 @@ from pathlib import Path
 import numpy as np
 from tqdm.auto import tqdm
 
-from .analysis import global_peak_displacement_ratio
-from .benchmarks import get_benchmark, with_tmd_mass
+from .backends import analyze_with_backend
+from .examples import get_example_config, with_tmd_mass
 from .io import load_record
-from .opensees_model import analyze_with_backend
 from .optimizers import OptimizerConfig, run_optimizer
 from .reference import get_reference_params
 from .reporting import publish_run
@@ -125,7 +124,9 @@ def _load_ga_optimizer_settings(
             payload["tournament_size"],
             context=f"{context}.tournament_size",
         ),
-        elite_count=_require_int(payload["elite_count"], context=f"{context}.elite_count"),
+        elite_count=_require_int(
+            payload["elite_count"], context=f"{context}.elite_count"
+        ),
     )
 
 
@@ -232,6 +233,14 @@ def _position_to_params(config: BuildingConfig, position: np.ndarray) -> TMDPara
     )
 
 
+def _global_peak_displacement_ratio(
+    controlled: DynamicResponse, uncontrolled: DynamicResponse
+) -> float:
+    controlled_peak = float(np.max(controlled.peak_story_displacements_m))
+    uncontrolled_peak = float(np.max(uncontrolled.peak_story_displacements_m))
+    return controlled_peak / max(uncontrolled_peak, 1.0e-12)
+
+
 def _objective_factory(config: BuildingConfig, record, backend: str):
     uncontrolled_cache = analyze_with_backend(
         config, record, params=None, backend=backend
@@ -242,7 +251,7 @@ def _objective_factory(config: BuildingConfig, record, backend: str):
         controlled = analyze_with_backend(
             config, record, params=params, backend=backend
         )
-        return global_peak_displacement_ratio(controlled, uncontrolled_cache)
+        return _global_peak_displacement_ratio(controlled, uncontrolled_cache)
 
     return objective, uncontrolled_cache
 
@@ -339,7 +348,7 @@ def _example_table_payload(
 def run_example(
     name: str, backend: str = "auto", profile: str = "full", progress: bool = False
 ) -> BenchmarkRun:
-    config = get_benchmark(name)
+    config = get_example_config(name)
     notes = [
         "objective: minimize the global peak displacement ratio across all stories",
         "decision vector: [installation_floor, mass_ton, stiffness_kn_per_m, damping_kns_per_m]",
@@ -367,7 +376,7 @@ def run_example(
 
 
 def run_mass_sweep(backend: str = "auto") -> dict[str, object]:
-    config = get_benchmark("example1")
+    config = get_example_config("example1")
     record = _load_example_record(config)
     rows = []
     for mass in (90.0, 96.0, 100.0, 104.0, 108.0, 112.0, 116.0):
@@ -392,7 +401,7 @@ def run_mass_sweep(backend: str = "auto") -> dict[str, object]:
 def run_far_field(
     backend: str = "auto", profile: str = "full", progress: bool = False
 ) -> dict[str, object]:
-    config = get_benchmark("example1")
+    config = get_example_config("example1")
     record_names = [
         ("Northridge", "northridge"),
         ("Duzce, Turkey", "duzce_turkey"),

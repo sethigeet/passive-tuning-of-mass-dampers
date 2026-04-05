@@ -1,29 +1,13 @@
-from dataclasses import dataclass
-
 import numpy as np
 
-from .analysis import analyze_controlled, analyze_uncontrolled
-from .models import resolve_tmd_installation_floor
-from .types import BuildingConfig, DynamicResponse, Record, TMDParameters
+from .base import BackendAvailability
+from ..models import resolve_tmd_installation_floor
+from ..types import BuildingConfig, DynamicResponse, Record, TMDParameters
 
 try:
     from openseespy import opensees as ops
 except Exception:  # pragma: no cover - optional dependency at runtime
     ops = None
-
-
-@dataclass(frozen=True)
-class OpenSeesAvailability:
-    available: bool
-    reason: str | None = None
-
-
-def availability() -> OpenSeesAvailability:
-    if ops is None:
-        return OpenSeesAvailability(
-            False, "openseespy is not installed in the active environment"
-        )
-    return OpenSeesAvailability(True, None)
 
 
 def _build_opensees_model(config: BuildingConfig, params: TMDParameters | None) -> None:
@@ -120,23 +104,26 @@ def _run_opensees_transient(
     )
 
 
-def analyze_with_backend(
-    config: BuildingConfig,
-    record: Record,
-    params: TMDParameters | None = None,
-    backend: str = "auto",
-) -> DynamicResponse:
-    selected = backend
-    if backend == "auto":
-        selected = "opensees" if availability().available else "numpy"
-    if selected == "opensees":
-        if not availability().available:
-            raise RuntimeError(availability().reason)
+class OpenSeesBackend:
+    name = "opensees"
+
+    def availability(self) -> BackendAvailability:
+        if ops is None:
+            return BackendAvailability(
+                False, "openseespy is not installed in the active environment"
+            )
+        return BackendAvailability(True, None)
+
+    def analyze(
+        self,
+        config: BuildingConfig,
+        record: Record,
+        params: TMDParameters | None = None,
+    ) -> DynamicResponse:
+        status = self.availability()
+        if not status.available:
+            raise RuntimeError(status.reason)
         return _run_opensees_transient(config, record, params)
-    if selected == "numpy":
-        return (
-            analyze_uncontrolled(config, record)
-            if params is None
-            else analyze_controlled(config, params, record)
-        )
-    raise ValueError(f"Unsupported backend: {backend}")
+
+
+opensees_backend = OpenSeesBackend()

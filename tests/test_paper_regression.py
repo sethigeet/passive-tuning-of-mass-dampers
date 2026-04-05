@@ -1,10 +1,9 @@
 import numpy as np
 
-from tmd.analysis import analyze_controlled, analyze_uncontrolled
-from tmd.benchmarks import get_benchmark, with_tmd_mass
+from tmd.backends import analyze_with_backend
+from tmd.examples import get_example_config, with_tmd_mass
 from tmd.io import load_record
 from tmd.reference import get_reference_params
-
 
 PAPER_DISPLACEMENTS = {
     "example1": {
@@ -107,13 +106,16 @@ PAPER_MASS_SWEEP_TOP = np.array([0.125, 0.116, 0.114, 0.115, 0.122, 0.130, 0.135
 
 
 def _reference_story_displacements(benchmark_name: str) -> dict[str, np.ndarray]:
-    config = get_benchmark(benchmark_name)
+    config = get_example_config(benchmark_name)
     record = load_record(config.example_record_name)
-    uncontrolled = analyze_uncontrolled(config, record)
+    uncontrolled = analyze_with_backend(config, record, backend="numpy")
     values = {"without_tmd": uncontrolled.peak_story_displacements_m}
     for algorithm in ("pso", "woa", "hpw"):
-        values[algorithm] = analyze_controlled(
-            config, get_reference_params(benchmark_name, algorithm), record
+        values[algorithm] = analyze_with_backend(
+            config,
+            record,
+            params=get_reference_params(benchmark_name, algorithm),
+            backend="numpy",
         ).peak_story_displacements_m
     return values
 
@@ -149,13 +151,18 @@ def test_example2_reference_displacements_track_paper_table():
 
 
 def test_example1_mass_sweep_keeps_paper_shape():
-    config = get_benchmark("example1")
+    config = get_example_config("example1")
     record = load_record(config.example_record_name)
     masses = (90.0, 96.0, 100.0, 104.0, 108.0, 112.0, 116.0)
     top_floor = []
     for mass in masses:
         params = get_reference_params("example1", "pso", mass_ton=mass)
-        response = analyze_controlled(with_tmd_mass(config, mass), params, record)
+        response = analyze_with_backend(
+            with_tmd_mass(config, mass),
+            record,
+            params=params,
+            backend="numpy",
+        )
         top_floor.append(response.peak_story_displacements_m[-1])
     top_floor = np.asarray(top_floor)
 

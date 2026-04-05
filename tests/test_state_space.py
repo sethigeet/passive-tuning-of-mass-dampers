@@ -1,13 +1,13 @@
 import numpy as np
 
-from tmd.benchmarks import get_benchmark
+from tmd.examples import get_example_config
 from tmd.models import build_controlled_mck, build_uncontrolled_mck
 from tmd.state_space import second_order_to_state_space, state_space_objective
 from tmd.types import TMDParameters
 
 
 def test_state_space_block_dimensions_match_second_order_system():
-    config = get_benchmark("example1")
+    config = get_example_config("example1")
     a, b, c_out, d = second_order_to_state_space(*build_uncontrolled_mck(config))
     assert a.shape == (20, 20)
     assert b.shape == (20, 1)
@@ -16,7 +16,7 @@ def test_state_space_block_dimensions_match_second_order_system():
 
 
 def test_state_space_objective_is_positive():
-    config = get_benchmark("example1")
+    config = get_example_config("example1")
     params = TMDParameters(config.tmd_mass_ton, 4136.0, 117.5)
     omega = np.linspace(0.1, 10.0, 64)
     value = state_space_objective(
@@ -28,7 +28,7 @@ def test_state_space_objective_is_positive():
 
 
 def test_state_space_uses_base_excitation_influence_vector():
-    config = get_benchmark("example1")
+    config = get_example_config("example1")
     m, c, k = build_uncontrolled_mck(config)
     _, b, _, _ = second_order_to_state_space(m, c, k)
     assert np.allclose(b[:10, 0], 0.0)

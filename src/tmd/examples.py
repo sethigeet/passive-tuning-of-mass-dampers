@@ -3,7 +3,7 @@ from pathlib import Path
 
 from .types import BuildingConfig
 
-_BENCHMARKS = {
+_EXAMPLES = {
     "example1": BuildingConfig(
         name="example1",
         story_masses_ton=(360.0,) * 10,
@@ -66,11 +66,11 @@ _BENCHMARKS = {
 }
 
 
-def get_benchmark(name: str) -> BuildingConfig:
+def get_example_config(example_name: str) -> BuildingConfig:
     try:
-        return _BENCHMARKS[name]
+        return _EXAMPLES[example_name]
     except KeyError as exc:
-        raise ValueError(f"Unknown benchmark: {name}") from exc
+        raise ValueError(f"Unknown example: {example_name}") from exc
 
 
 def record_candidates(record_name: str) -> list[Path]:
