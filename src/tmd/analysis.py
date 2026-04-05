@@ -44,7 +44,7 @@ def newmark_linear(
         v[i] = v[i - 1] + dt * ((1.0 - gamma) * a[i - 1] + gamma * a[i])
 
     peaks = np.max(np.abs(u), axis=0)
-    objective = float(peaks[-1])
+    objective = float(np.max(peaks))
     return DynamicResponse(
         time=record.time,
         relative_displacements_m=u,
@@ -73,7 +73,7 @@ def analyze_controlled(
         :, : config.n_stories
     ]
     response.peak_story_displacements_m = np.max(np.abs(story_disp), axis=0)
-    response.objective_value = float(response.peak_story_displacements_m[-1])
+    response.objective_value = float(np.max(response.peak_story_displacements_m))
     return response
 
 

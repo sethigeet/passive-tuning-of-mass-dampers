@@ -106,7 +106,7 @@ def _run_opensees_transient(
         relative_velocities_mps=story_vel,
         relative_accelerations_mps2=story_acc,
         peak_story_displacements_m=peaks,
-        objective_value=float(peaks[-1]),
+        objective_value=float(np.max(peaks)),
         metadata={"solver": "openseespy"},
     )
 
