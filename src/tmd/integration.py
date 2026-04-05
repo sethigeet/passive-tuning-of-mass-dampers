@@ -1,8 +1,30 @@
 import numpy as np
-from scipy.linalg import lu_factor, lu_solve
+from numba import njit
 
 from .models import influence_vector
 from .types import Array, DynamicResponse, Record
+
+
+@njit(cache=True)
+def _newmark_loop(m, c, k_eff_inv, external, inv_m, a0, a1, a2, a3, a4, a5, dt, gamma):
+    n_steps = external.shape[0]
+    n_dof = m.shape[0]
+    u = np.zeros((n_steps, n_dof))
+    v = np.zeros((n_steps, n_dof))
+    acc = np.zeros((n_steps, n_dof))
+
+    # Initial acceleration (u[0]=0, v[0]=0 so c/k terms vanish)
+    acc[0] = inv_m @ external[0]
+
+    for i in range(1, n_steps):
+        m_contrib = a0 * u[i - 1] + a2 * v[i - 1] + a3 * acc[i - 1]
+        c_contrib = a1 * u[i - 1] + a4 * v[i - 1] + a5 * acc[i - 1]
+        p_eff = external[i] + m @ m_contrib + c @ c_contrib
+        u[i] = k_eff_inv @ p_eff
+        acc[i] = a0 * (u[i] - u[i - 1]) - a2 * v[i - 1] - a3 * acc[i - 1]
+        v[i] = v[i - 1] + dt * ((1.0 - gamma) * acc[i - 1] + gamma * acc[i])
+
+    return u, v, acc
 
 
 def newmark_linear(
@@ -16,13 +38,9 @@ def newmark_linear(
     n = m.shape[0]
     dt = record.dt
     r = influence_vector(n)
-    u = np.zeros((len(record.time), n), dtype=float)
-    v = np.zeros_like(u)
-    a = np.zeros_like(u)
 
     inv_m = np.linalg.inv(m)
     external = -np.outer(record.accel_mps2, m @ r)
-    a[0] = inv_m @ (external[0] - c @ v[0] - k @ u[0])
 
     a0 = 1.0 / (beta * dt * dt)
     a1 = gamma / (beta * dt)
@@ -31,17 +49,12 @@ def newmark_linear(
     a4 = gamma / beta - 1.0
     a5 = dt * (gamma / (2.0 * beta) - 1.0)
     k_eff = k + a0 * m + a1 * c
-    k_eff_lu = lu_factor(k_eff)
+    k_eff_inv = np.linalg.inv(k_eff)
 
-    for i in range(1, len(record.time)):
-        p_eff = (
-            external[i]
-            + m @ (a0 * u[i - 1] + a2 * v[i - 1] + a3 * a[i - 1])
-            + c @ (a1 * u[i - 1] + a4 * v[i - 1] + a5 * a[i - 1])
-        )
-        u[i] = lu_solve(k_eff_lu, p_eff)
-        a[i] = a0 * (u[i] - u[i - 1]) - a2 * v[i - 1] - a3 * a[i - 1]
-        v[i] = v[i - 1] + dt * ((1.0 - gamma) * a[i - 1] + gamma * a[i])
+    u, v, a = _newmark_loop(
+        m, c, k_eff_inv, external, inv_m,
+        a0, a1, a2, a3, a4, a5, dt, gamma,
+    )
 
     peaks = np.max(np.abs(u), axis=0)
     objective = float(np.max(peaks))
