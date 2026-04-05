@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.linalg import lu_factor, lu_solve
 
 from .models import influence_vector
 from .types import Array, DynamicResponse, Record
@@ -30,6 +31,7 @@ def newmark_linear(
     a4 = gamma / beta - 1.0
     a5 = dt * (gamma / (2.0 * beta) - 1.0)
     k_eff = k + a0 * m + a1 * c
+    k_eff_lu = lu_factor(k_eff)
 
     for i in range(1, len(record.time)):
         p_eff = (
@@ -37,7 +39,7 @@ def newmark_linear(
             + m @ (a0 * u[i - 1] + a2 * v[i - 1] + a3 * a[i - 1])
             + c @ (a1 * u[i - 1] + a4 * v[i - 1] + a5 * a[i - 1])
         )
-        u[i] = np.linalg.solve(k_eff, p_eff)
+        u[i] = lu_solve(k_eff_lu, p_eff)
         a[i] = a0 * (u[i] - u[i - 1]) - a2 * v[i - 1] - a3 * a[i - 1]
         v[i] = v[i - 1] + dt * ((1.0 - gamma) * a[i - 1] + gamma * a[i])
 
