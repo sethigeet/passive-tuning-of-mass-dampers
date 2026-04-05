@@ -28,13 +28,21 @@ def _bounded(position: Array, bounds: Array) -> Array:
     return np.clip(position, low, high)
 
 
+def _repair_positions(
+    positions: Array, bounds: Array, integer_indices: tuple[int, ...]
+) -> Array:
+    repaired = np.clip(positions, bounds[:, 0], bounds[:, 1])
+    if integer_indices:
+        repaired[:, integer_indices] = np.rint(repaired[:, integer_indices])
+    return repaired
+
+
 def _repair_position(
     position: Array, bounds: Array, integer_indices: tuple[int, ...]
 ) -> Array:
-    repaired = _bounded(position, bounds)
-    for index in integer_indices:
-        repaired[index] = np.rint(repaired[index])
-    return repaired
+    return _repair_positions(
+        np.asarray(position, dtype=float).reshape(1, -1), bounds, integer_indices
+    )[0]
 
 
 def _random_population(
@@ -44,10 +52,7 @@ def _random_population(
     integer_indices: tuple[int, ...],
 ) -> Array:
     positions = rng.uniform(bounds[:, 0], bounds[:, 1], size=(population, bounds.shape[0]))
-    return np.array(
-        [_repair_position(position, bounds, integer_indices) for position in positions]
-    )
-
+    return _repair_positions(positions, bounds, integer_indices)
 
 def _converged(history: list[float], tolerance: float, window: int) -> bool:
     if len(history) < window:
@@ -117,9 +122,9 @@ def optimize_ga(
     best_value = float(values[best_idx])
     history = [best_value]
     start = time.perf_counter()
+    elite_count = min(max(config.elite_count, 1), config.population)
 
     for _ in _iteration_range(config):
-        elite_count = min(max(config.elite_count, 1), config.population)
         elite_indices = np.argsort(values)[:elite_count]
         next_positions = [positions[index].copy() for index in elite_indices]
         while len(next_positions) < config.population:
@@ -173,9 +178,10 @@ def optimize_gahpw(
     global_value = float(personal_values[best_idx])
     history = [global_value]
     start = time.perf_counter()
+    elite_count = min(max(config.elite_count, 1), config.population)
+    iteration_scale = max(config.iterations - 1, 1)
 
     for iteration in _iteration_range(config):
-        elite_count = min(max(config.elite_count, 1), config.population)
         elite_indices = np.argsort(personal_values)[:elite_count]
         next_positions = [personal_best[index].copy() for index in elite_indices]
         while len(next_positions) < config.population:
@@ -206,7 +212,7 @@ def optimize_gahpw(
         inertia = config.inertia_start + (
             (config.inertia_end - config.inertia_start)
             * iteration
-            / max(config.iterations - 1, 1)
+            / iteration_scale
         )
         r1 = rng.random((config.population, dimensions))
         r2 = rng.random((config.population, dimensions))
@@ -215,12 +221,7 @@ def optimize_gahpw(
             + config.c1 * r1 * (personal_best - positions)
             + config.c2 * r2 * (global_best - positions)
         )
-        positions = np.array(
-            [
-                _repair_position(position, bounds, integer_indices)
-                for position in positions + velocities
-            ]
-        )
+        positions = _repair_positions(positions + velocities, bounds, integer_indices)
         values = np.array([objective(position) for position in positions])
         improved = values < personal_values
         personal_best[improved] = positions[improved]
@@ -230,7 +231,7 @@ def optimize_gahpw(
             global_value = float(personal_values[best_idx])
             global_best = personal_best[best_idx].copy()
 
-        a = 2.0 - 2.0 * iteration / max(config.iterations - 1, 1)
+        a = 2.0 - 2.0 * iteration / iteration_scale
         for i in range(config.population):
             r = rng.random(dimensions)
             a_vec = 2.0 * a * r - a
@@ -295,12 +296,13 @@ def optimize_pso(
     global_value = float(personal_values[best_idx])
     history = [global_value]
     start = time.perf_counter()
+    iteration_scale = max(config.iterations - 1, 1)
 
     for iteration in _iteration_range(config):
         inertia = config.inertia_start + (
             (config.inertia_end - config.inertia_start)
             * iteration
-            / max(config.iterations - 1, 1)
+            / iteration_scale
         )
         r1 = rng.random((config.population, dimensions))
         r2 = rng.random((config.population, dimensions))
@@ -309,12 +311,7 @@ def optimize_pso(
             + config.c1 * r1 * (personal_best - positions)
             + config.c2 * r2 * (global_best - positions)
         )
-        positions = np.array(
-            [
-                _repair_position(position, bounds, integer_indices)
-                for position in positions + velocities
-            ]
-        )
+        positions = _repair_positions(positions + velocities, bounds, integer_indices)
         values = np.array([objective(p) for p in positions])
         improved = values < personal_values
         personal_best[improved] = positions[improved]
@@ -352,9 +349,10 @@ def optimize_woa(
     best_value = float(values[best_idx])
     history = [best_value]
     start = time.perf_counter()
+    iteration_scale = max(config.iterations - 1, 1)
 
     for iteration in _iteration_range(config):
-        a = 2.0 - 2.0 * iteration / max(config.iterations - 1, 1)
+        a = 2.0 - 2.0 * iteration / iteration_scale
         for i in range(config.population):
             r = rng.random(dimensions)
             a_vec = 2.0 * a * r - a
@@ -414,12 +412,13 @@ def optimize_hpw(
     global_value = float(personal_values[best_idx])
     history = [global_value]
     start = time.perf_counter()
+    iteration_scale = max(config.iterations - 1, 1)
 
     for iteration in _iteration_range(config):
         inertia = config.inertia_start + (
             (config.inertia_end - config.inertia_start)
             * iteration
-            / max(config.iterations - 1, 1)
+            / iteration_scale
         )
         r1 = rng.random((config.population, dimensions))
         r2 = rng.random((config.population, dimensions))
@@ -428,12 +427,7 @@ def optimize_hpw(
             + config.c1 * r1 * (personal_best - positions)
             + config.c2 * r2 * (global_best - positions)
         )
-        positions = np.array(
-            [
-                _repair_position(position, bounds, integer_indices)
-                for position in positions + velocities
-            ]
-        )
+        positions = _repair_positions(positions + velocities, bounds, integer_indices)
         values = np.array([objective(p) for p in positions])
         improved = values < personal_values
         personal_best[improved] = positions[improved]
@@ -443,7 +437,7 @@ def optimize_hpw(
             global_value = float(personal_values[best_idx])
             global_best = personal_best[best_idx].copy()
 
-        a = 2.0 - 2.0 * iteration / max(config.iterations - 1, 1)
+        a = 2.0 - 2.0 * iteration / iteration_scale
         for i in range(config.population):
             r = rng.random(dimensions)
             a_vec = 2.0 * a * r - a
