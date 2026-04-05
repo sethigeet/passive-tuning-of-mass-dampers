@@ -80,7 +80,10 @@ def _plot_reduction_bars(
     frame = frame[frame["story"] != "mean"].copy()
     fig, ax = plt.subplots(figsize=(7, 4))
     stories = frame["story"].astype(int)
-    for algorithm in ("pso", "woa", "hpw"):
+    algorithms = [
+        column for column in frame.columns if column not in {"story", "without_tmd"}
+    ]
+    for algorithm in algorithms:
         ax.plot(stories, frame[algorithm], marker="o", label=algorithm.upper())
     ax.set_title(title)
     ax.set_xlabel("Story")
@@ -113,9 +116,14 @@ def write_report(root: Path, run: BenchmarkRun) -> Path:
         lines.append("")
         lines.append("## Optimizer results")
         for algorithm, result in run.optimizations.items():
-            lines.append(
-                f"- {algorithm.upper()}: best={result.best_value:.6f}, kd={result.best_position[0]:.4f}, cd={result.best_position[1]:.4f}, iterations={result.iterations}"
-            )
+            if len(result.best_position) == 4:
+                lines.append(
+                    f"- {algorithm.upper()}: best={result.best_value:.6f}, floor={int(np.rint(result.best_position[0]))}, mass={result.best_position[1]:.4f}, kd={result.best_position[2]:.4f}, cd={result.best_position[3]:.4f}, iterations={result.iterations}"
+                )
+            else:
+                lines.append(
+                    f"- {algorithm.upper()}: best={result.best_value:.6f}, kd={result.best_position[0]:.4f}, cd={result.best_position[1]:.4f}, iterations={result.iterations}"
+                )
     destination = root / "results/summary/report.md"
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
