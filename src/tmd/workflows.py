@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 from tqdm.auto import tqdm
 
-from .analysis import floor_displacement_ratio
+from .analysis import global_peak_displacement_ratio
 from .benchmarks import get_benchmark, with_tmd_mass
 from .io import load_record
 from .opensees_model import analyze_with_backend
@@ -178,6 +178,8 @@ def _optimizer_config(
 def _bounds(config: BuildingConfig) -> np.ndarray:
     return np.array(
         [
+            [1.0, float(config.n_stories)],
+            [config.tmd_mass_bounds_ton[0], config.tmd_mass_bounds_ton[1]],
             [config.stiffness_bounds_kn_per_m[0], config.stiffness_bounds_kn_per_m[1]],
             [config.damping_bounds_kns_per_m[0], config.damping_bounds_kns_per_m[1]],
         ],
@@ -382,8 +384,10 @@ def run_far_field(
                 "gm": label,
                 "case": algorithm.upper(),
                 "mean": float(np.mean(story_reduction)),
-                "kd": float(result.best_position[0]),
-                "cd": float(result.best_position[1]),
+                "floor": int(np.rint(result.best_position[0])),
+                "mass_ton": float(result.best_position[1]),
+                "kd": float(result.best_position[2]),
+                "cd": float(result.best_position[3]),
                 "objective": float(result.best_value),
                 "iterations": int(result.iterations),
                 "runtime_s": float(result.runtime_s),

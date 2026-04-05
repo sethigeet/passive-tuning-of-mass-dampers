@@ -183,6 +183,7 @@ class BuildingConfig:
     story_stiffness_kn_per_m: tuple[float, ...]
     story_damping_kns_per_m: tuple[float, ...]
     tmd_mass_ton: float
+    tmd_mass_bounds_ton: tuple[float, float]
     stiffness_bounds_kn_per_m: tuple[float, float]
     damping_bounds_kns_per_m: tuple[float, float]
     required_records: tuple[str, ...]
