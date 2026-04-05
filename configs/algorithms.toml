@@ -3,6 +3,22 @@ seed = 20260330
 convergence_window = 6
 convergence_tolerance = 1.0e-5
 
+[profiles.fast.ga]
+population = 16
+iterations = 24
+crossover_rate = 0.85
+mutation_rate = 0.12
+tournament_size = 3
+elite_count = 2
+
+[profiles.fast.gahpw]
+population = 16
+iterations = 24
+crossover_rate = 0.85
+mutation_rate = 0.12
+tournament_size = 3
+elite_count = 2
+
 [profiles.fast.pso]
 population = 10
 iterations = 20
@@ -29,6 +45,22 @@ b = 1.0
 seed = 20260330
 convergence_window = 10
 convergence_tolerance = 1.0e-6
+
+[profiles.full.ga]
+population = 36
+iterations = 120
+crossover_rate = 0.9
+mutation_rate = 0.08
+tournament_size = 3
+elite_count = 2
+
+[profiles.full.gahpw]
+population = 36
+iterations = 120
+crossover_rate = 0.9
+mutation_rate = 0.08
+tournament_size = 3
+elite_count = 2
 
 [profiles.full.pso]
 population = 30

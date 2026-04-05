@@ -1,4 +1,5 @@
 import tomllib
+from dataclasses import replace
 from functools import lru_cache
 from pathlib import Path
 
@@ -18,12 +19,12 @@ from .spectra import (
     scale_record_to_target_spectral_acceleration,
 )
 from .types import (
-    ALGORITHMS,
     AlgorithmConfig,
     AlgorithmName,
     BenchmarkRun,
     BuildingConfig,
     DynamicResponse,
+    GAOptimizerSettings,
     GlobalOptimizerSettings,
     HPWOptimizerSettings,
     OptimizationProfileSettings,
@@ -34,6 +35,7 @@ from .types import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
+WORKFLOW_ALGORITHMS: tuple[AlgorithmName, ...] = ("gahpw",)
 
 
 def _require_table(value: object, *, context: str) -> dict[str, object]:
@@ -105,6 +107,28 @@ def _load_woa_optimizer_settings(
     )
 
 
+def _load_ga_optimizer_settings(
+    payload: dict[str, object], *, context: str
+) -> GAOptimizerSettings:
+    return GAOptimizerSettings(
+        population=_require_int(payload["population"], context=f"{context}.population"),
+        iterations=_require_int(payload["iterations"], context=f"{context}.iterations"),
+        crossover_rate=_require_float(
+            payload["crossover_rate"],
+            context=f"{context}.crossover_rate",
+        ),
+        mutation_rate=_require_float(
+            payload["mutation_rate"],
+            context=f"{context}.mutation_rate",
+        ),
+        tournament_size=_require_int(
+            payload["tournament_size"],
+            context=f"{context}.tournament_size",
+        ),
+        elite_count=_require_int(payload["elite_count"], context=f"{context}.elite_count"),
+    )
+
+
 def _load_hpw_optimizer_settings(
     payload: dict[str, object], *, context: str
 ) -> HPWOptimizerSettings:
@@ -132,6 +156,10 @@ def _load_profile_settings(
             _require_table(payload["global"], context=f"{context}.global"),
             context=f"{context}.global",
         ),
+        ga=_load_ga_optimizer_settings(
+            _require_table(payload["ga"], context=f"{context}.ga"),
+            context=f"{context}.ga",
+        ),
         pso=_load_pso_optimizer_settings(
             _require_table(payload["pso"], context=f"{context}.pso"),
             context=f"{context}.pso",
@@ -143,6 +171,10 @@ def _load_profile_settings(
         hpw=_load_hpw_optimizer_settings(
             _require_table(payload["hpw"], context=f"{context}.hpw"),
             context=f"{context}.hpw",
+        ),
+        gahpw=_load_ga_optimizer_settings(
+            _require_table(payload["gahpw"], context=f"{context}.gahpw"),
+            context=f"{context}.gahpw",
         ),
     )
 
@@ -168,10 +200,13 @@ def _optimizer_config(
     progress_label: str = "",
 ) -> OptimizerConfig:
     profile_settings = _load_algorithm_config().profile(profile)
-    return profile_settings.optimizer_config(
-        algorithm,
-        show_progress=show_progress,
-        progress_label=progress_label,
+    return replace(
+        profile_settings.optimizer_config(
+            algorithm,
+            show_progress=show_progress,
+            progress_label=progress_label,
+        ),
+        integer_indices=(0,),
     )
 
 
@@ -230,7 +265,7 @@ def _optimize_algorithms_for_record(
     objective, uncontrolled = _objective_factory(config, record, backend)
     optimizations: dict[str, OptimizationResult] = {}
     controlled: dict[str, DynamicResponse] = {}
-    for algorithm in ALGORITHMS:
+    for algorithm in WORKFLOW_ALGORITHMS:
         label = f"{record.name}:{algorithm.upper()}"
         result = run_optimizer(
             algorithm,
@@ -305,7 +340,11 @@ def run_example(
     name: str, backend: str = "auto", profile: str = "full", progress: bool = False
 ) -> BenchmarkRun:
     config = get_benchmark(name)
-    notes: list[str] = []
+    notes = [
+        "objective: minimize the global peak displacement ratio across all stories",
+        "decision vector: [installation_floor, mass_ton, stiffness_kn_per_m, damping_kns_per_m]",
+        "workflow optimizer: mixed-integer GA+HPW hybrid",
+    ]
     record = _load_example_record(config)
     uncontrolled, optimizations, controlled = _optimize_algorithms_for_record(
         config, record, backend, profile, progress=progress

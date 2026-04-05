@@ -9,7 +9,8 @@ The repository contains:
 - 10-story benchmark building definitions for the two paper examples
 - linear transient response analysis with a NumPy/SciPy Newmark solver
 - an OpenSeesPy transient backend exposed through the same workflow API
-- PSO, WOA, and hybrid PSO-WOA optimizers
+- a mixed-integer GA+HPW hybrid optimizer for joint TMD floor-placement and parameter search
+- PSO, WOA, and hybrid PSO-WOA optimizers for continuous or repaired mixed-integer studies
 - record preprocessing for the FEMA P695 far-field archive
 - CSV/figure/report generation under `results/`
 
@@ -69,10 +70,10 @@ Available commands:
 
 Workflow meanings:
 
-- `example1` runs the paper's first 10-story benchmark under its reference record and optimizes TMD stiffness and damping with PSO, WOA, and HPW.
-- `example2` runs the paper's second 10-story benchmark under its own reference record and performs the same TMD optimization study.
+- `example1` runs the first 10-story benchmark under its reference record and solves a mixed-integer search over `[floor, mass, stiffness, damping]` with the built-in GA+HPW hybrid.
+- `example2` runs the second 10-story benchmark under its own reference record and solves the same mixed-integer TMD placement-and-tuning problem.
 - `mass-sweep` keeps the Example 1 reference PSO tuning and varies only the TMD mass to reproduce the mass-sensitivity study.
-- `far-field` reruns the Example 1 optimization workflow across the selected FEMA P695 far-field records after scaling them to the target spectral acceleration.
+- `far-field` reruns the Example 1 mixed-integer optimization workflow across the selected FEMA P695 far-field records after scaling them to the target spectral acceleration.
 - `all` runs `example1`, `example2`, `mass-sweep`, and `far-field` in sequence.
 
 Common options:
@@ -102,6 +103,19 @@ Run the two built-in benchmark examples:
 ```bash
 uv run python -m tmd run example1 --profile full --backend numpy
 uv run python -m tmd run example2 --profile full --backend numpy
+```
+
+Each benchmark run optimizes:
+
+- TMD installation floor `p`
+- TMD mass `m_d`
+- TMD stiffness `k_d`
+- TMD damping `c_d`
+
+The workflow objective is the global peak-displacement ratio:
+
+```text
+max_i,t |x_i(t)| with TMD / max_i,t |x_i(t)| without TMD
 ```
 
 Run the mass sweep:

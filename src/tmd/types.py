@@ -6,8 +6,8 @@ import numpy as np
 
 Array = np.ndarray
 
-AlgorithmName = Literal["pso", "woa", "hpw"]
-ALGORITHMS: tuple[AlgorithmName, ...] = ("pso", "woa", "hpw")
+AlgorithmName = Literal["ga", "pso", "woa", "hpw", "gahpw"]
+ALGORITHMS: tuple[AlgorithmName, ...] = ("ga", "pso", "woa", "hpw", "gahpw")
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,11 @@ class OptimizerConfig:
     inertia_start: float = 1.0
     inertia_end: float = 0.0
     b: float = 1.0
+    crossover_rate: float = 0.8
+    mutation_rate: float = 0.1
+    tournament_size: int = 3
+    elite_count: int = 1
+    integer_indices: tuple[int, ...] = ()
     show_progress: bool = False
     progress_label: str = ""
 
@@ -123,11 +128,44 @@ class HPWOptimizerSettings:
 
 
 @dataclass(frozen=True)
+class GAOptimizerSettings:
+    population: int
+    iterations: int
+    crossover_rate: float
+    mutation_rate: float
+    tournament_size: int
+    elite_count: int
+
+    def to_optimizer_config(
+        self,
+        global_settings: GlobalOptimizerSettings,
+        *,
+        show_progress: bool = False,
+        progress_label: str = "",
+    ) -> OptimizerConfig:
+        return OptimizerConfig(
+            population=self.population,
+            iterations=self.iterations,
+            seed=global_settings.seed,
+            convergence_tolerance=global_settings.convergence_tolerance,
+            convergence_window=global_settings.convergence_window,
+            crossover_rate=self.crossover_rate,
+            mutation_rate=self.mutation_rate,
+            tournament_size=self.tournament_size,
+            elite_count=self.elite_count,
+            show_progress=show_progress,
+            progress_label=progress_label,
+        )
+
+
+@dataclass(frozen=True)
 class OptimizationProfileSettings:
     global_settings: GlobalOptimizerSettings
+    ga: GAOptimizerSettings
     pso: PSOOptimizerSettings
     woa: WOAOptimizerSettings
     hpw: HPWOptimizerSettings
+    gahpw: GAOptimizerSettings
 
     def optimizer_config(
         self,
@@ -137,6 +175,12 @@ class OptimizationProfileSettings:
         progress_label: str = "",
     ) -> OptimizerConfig:
         match algorithm:
+            case "ga":
+                return self.ga.to_optimizer_config(
+                    self.global_settings,
+                    show_progress=show_progress,
+                    progress_label=progress_label,
+                )
             case "pso":
                 return self.pso.to_optimizer_config(
                     self.global_settings,
@@ -152,6 +196,30 @@ class OptimizationProfileSettings:
             case "hpw":
                 return self.hpw.to_optimizer_config(
                     self.global_settings,
+                    show_progress=show_progress,
+                    progress_label=progress_label,
+                )
+            case "gahpw":
+                base = self.gahpw.to_optimizer_config(
+                    self.global_settings,
+                    show_progress=show_progress,
+                    progress_label=progress_label,
+                )
+                return OptimizerConfig(
+                    population=base.population,
+                    iterations=base.iterations,
+                    seed=base.seed,
+                    convergence_tolerance=base.convergence_tolerance,
+                    convergence_window=base.convergence_window,
+                    c1=self.hpw.c1,
+                    c2=self.hpw.c2,
+                    inertia_start=self.hpw.inertia_start,
+                    inertia_end=self.hpw.inertia_end,
+                    b=self.hpw.b,
+                    crossover_rate=base.crossover_rate,
+                    mutation_rate=base.mutation_rate,
+                    tournament_size=base.tournament_size,
+                    elite_count=base.elite_count,
                     show_progress=show_progress,
                     progress_label=progress_label,
                 )

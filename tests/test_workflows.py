@@ -30,10 +30,14 @@ def test_example1_fast_workflow_runs(monkeypatch):
 
     assert run.benchmark.name == "example1"
     assert run.mode == "simulate"
-    assert set(run.optimizations) == {"pso", "woa", "hpw"}
-    assert set(run.controlled) == {"pso", "woa", "hpw"}
+    assert set(run.optimizations) == {"gahpw"}
+    assert set(run.controlled) == {"gahpw"}
     assert run.uncontrolled is not None
     assert run.uncontrolled.peak_story_displacements_m[-1] > 0.0
+    assert len(run.optimizations["gahpw"].best_position) == 4
+    assert run.optimizations["gahpw"].best_position[0] == round(
+        run.optimizations["gahpw"].best_position[0]
+    )
 
 
 def test_example2_fast_workflow_runs(monkeypatch):
@@ -47,8 +51,8 @@ def test_example2_fast_workflow_runs(monkeypatch):
 
     assert run.benchmark.name == "example2"
     assert run.mode == "simulate"
-    assert set(run.optimizations) == {"pso", "woa", "hpw"}
-    assert set(run.controlled) == {"pso", "woa", "hpw"}
+    assert set(run.optimizations) == {"gahpw"}
+    assert set(run.controlled) == {"gahpw"}
     assert run.uncontrolled is not None
     assert run.uncontrolled.peak_story_displacements_m[-1] > 0.0
 

@@ -28,6 +28,27 @@ def _bounded(position: Array, bounds: Array) -> Array:
     return np.clip(position, low, high)
 
 
+def _repair_position(
+    position: Array, bounds: Array, integer_indices: tuple[int, ...]
+) -> Array:
+    repaired = _bounded(position, bounds)
+    for index in integer_indices:
+        repaired[index] = np.rint(repaired[index])
+    return repaired
+
+
+def _random_population(
+    bounds: Array,
+    population: int,
+    rng: np.random.Generator,
+    integer_indices: tuple[int, ...],
+) -> Array:
+    positions = rng.uniform(bounds[:, 0], bounds[:, 1], size=(population, bounds.shape[0]))
+    return np.array(
+        [_repair_position(position, bounds, integer_indices) for position in positions]
+    )
+
+
 def _converged(history: list[float], tolerance: float, window: int) -> bool:
     if len(history) < window:
         return False
@@ -35,14 +56,237 @@ def _converged(history: list[float], tolerance: float, window: int) -> bool:
     return max(segment) - min(segment) <= tolerance
 
 
+def _tournament_select(
+    positions: Array,
+    values: Array,
+    rng: np.random.Generator,
+    tournament_size: int,
+) -> Array:
+    contenders = rng.integers(0, len(positions), size=max(tournament_size, 2))
+    winner = contenders[int(np.argmin(values[contenders]))]
+    return positions[winner].copy()
+
+
+def _crossover(
+    parent_a: Array,
+    parent_b: Array,
+    rng: np.random.Generator,
+    integer_indices: tuple[int, ...],
+) -> Array:
+    child = parent_a.copy()
+    integer_set = set(integer_indices)
+    for index in range(len(child)):
+        if index in integer_set:
+            child[index] = parent_a[index] if rng.random() < 0.5 else parent_b[index]
+        else:
+            alpha = rng.random()
+            child[index] = alpha * parent_a[index] + (1.0 - alpha) * parent_b[index]
+    return child
+
+
+def _mutate(
+    child: Array,
+    bounds: Array,
+    rng: np.random.Generator,
+    config: OptimizerConfig,
+    integer_indices: tuple[int, ...],
+) -> Array:
+    integer_set = set(integer_indices)
+    for index in range(len(child)):
+        if rng.random() >= config.mutation_rate:
+            continue
+        low = bounds[index, 0]
+        high = bounds[index, 1]
+        if index in integer_set:
+            child[index] = rng.integers(int(math.ceil(low)), int(math.floor(high)) + 1)
+            continue
+        span = high - low
+        child[index] = child[index] + rng.normal(0.0, 0.1 * span)
+    return _repair_position(child, bounds, integer_indices)
+
+
+def optimize_ga(
+    objective: Objective, bounds: Array, config: OptimizerConfig
+) -> OptimizationResult:
+    rng = np.random.default_rng(config.seed)
+    integer_indices = tuple(config.integer_indices)
+    positions = _random_population(bounds, config.population, rng, integer_indices)
+    values = np.array([objective(position) for position in positions])
+    best_idx = int(np.argmin(values))
+    best_position = positions[best_idx].copy()
+    best_value = float(values[best_idx])
+    history = [best_value]
+    start = time.perf_counter()
+
+    for _ in _iteration_range(config):
+        elite_count = min(max(config.elite_count, 1), config.population)
+        elite_indices = np.argsort(values)[:elite_count]
+        next_positions = [positions[index].copy() for index in elite_indices]
+        while len(next_positions) < config.population:
+            parent_a = _tournament_select(
+                positions, values, rng, config.tournament_size
+            )
+            parent_b = _tournament_select(
+                positions, values, rng, config.tournament_size
+            )
+            if rng.random() < config.crossover_rate:
+                child = _crossover(parent_a, parent_b, rng, integer_indices)
+            else:
+                child = parent_a.copy()
+            next_positions.append(
+                _mutate(child, bounds, rng, config, integer_indices)
+            )
+        positions = np.array(next_positions)
+        values = np.array([objective(position) for position in positions])
+        best_idx = int(np.argmin(values))
+        if values[best_idx] < best_value:
+            best_value = float(values[best_idx])
+            best_position = positions[best_idx].copy()
+        history.append(best_value)
+        if _converged(history, config.convergence_tolerance, config.convergence_window):
+            break
+
+    runtime = time.perf_counter() - start
+    return OptimizationResult(
+        algorithm="ga",
+        best_position=best_position,
+        best_value=best_value,
+        history=history,
+        iterations=len(history) - 1,
+        runtime_s=runtime,
+        seed=config.seed,
+    )
+
+
+def optimize_gahpw(
+    objective: Objective, bounds: Array, config: OptimizerConfig
+) -> OptimizationResult:
+    rng = np.random.default_rng(config.seed)
+    integer_indices = tuple(config.integer_indices)
+    dimensions = bounds.shape[0]
+    positions = _random_population(bounds, config.population, rng, integer_indices)
+    velocities = np.zeros_like(positions)
+    personal_best = positions.copy()
+    personal_values = np.array([objective(position) for position in positions])
+    best_idx = int(np.argmin(personal_values))
+    global_best = personal_best[best_idx].copy()
+    global_value = float(personal_values[best_idx])
+    history = [global_value]
+    start = time.perf_counter()
+
+    for iteration in _iteration_range(config):
+        elite_count = min(max(config.elite_count, 1), config.population)
+        elite_indices = np.argsort(personal_values)[:elite_count]
+        next_positions = [personal_best[index].copy() for index in elite_indices]
+        while len(next_positions) < config.population:
+            parent_a = _tournament_select(
+                personal_best, personal_values, rng, config.tournament_size
+            )
+            parent_b = _tournament_select(
+                personal_best, personal_values, rng, config.tournament_size
+            )
+            if rng.random() < config.crossover_rate:
+                child = _crossover(parent_a, parent_b, rng, integer_indices)
+            else:
+                child = parent_a.copy()
+            next_positions.append(
+                _mutate(child, bounds, rng, config, integer_indices)
+            )
+        positions = np.array(next_positions)
+
+        values = np.array([objective(position) for position in positions])
+        improved = values < personal_values
+        personal_best[improved] = positions[improved]
+        personal_values[improved] = values[improved]
+        best_idx = int(np.argmin(values))
+        if values[best_idx] < global_value:
+            global_value = float(values[best_idx])
+            global_best = positions[best_idx].copy()
+
+        inertia = config.inertia_start + (
+            (config.inertia_end - config.inertia_start)
+            * iteration
+            / max(config.iterations - 1, 1)
+        )
+        r1 = rng.random((config.population, dimensions))
+        r2 = rng.random((config.population, dimensions))
+        velocities = (
+            inertia * velocities
+            + config.c1 * r1 * (personal_best - positions)
+            + config.c2 * r2 * (global_best - positions)
+        )
+        positions = np.array(
+            [
+                _repair_position(position, bounds, integer_indices)
+                for position in positions + velocities
+            ]
+        )
+        values = np.array([objective(position) for position in positions])
+        improved = values < personal_values
+        personal_best[improved] = positions[improved]
+        personal_values[improved] = values[improved]
+        best_idx = int(np.argmin(personal_values))
+        if personal_values[best_idx] < global_value:
+            global_value = float(personal_values[best_idx])
+            global_best = personal_best[best_idx].copy()
+
+        a = 2.0 - 2.0 * iteration / max(config.iterations - 1, 1)
+        for i in range(config.population):
+            r = rng.random(dimensions)
+            a_vec = 2.0 * a * r - a
+            c_vec = 2.0 * rng.random(dimensions)
+            p = rng.random()
+            spiral_offset = rng.uniform(-1.0, 1.0)
+            if p < 0.5:
+                if np.linalg.norm(a_vec, ord=np.inf) < 1.0:
+                    d = np.abs(c_vec * global_best - positions[i])
+                    new_pos = global_best - a_vec * d
+                else:
+                    random_agent = positions[rng.integers(0, config.population)]
+                    d = np.abs(c_vec * random_agent - positions[i])
+                    new_pos = random_agent - a_vec * d
+            else:
+                d = np.abs(global_best - positions[i])
+                new_pos = (
+                    d
+                    * math.exp(config.b * spiral_offset)
+                    * math.cos(2.0 * math.pi * spiral_offset)
+                    + global_best
+                )
+            positions[i] = _repair_position(new_pos, bounds, integer_indices)
+
+        values = np.array([objective(position) for position in positions])
+        improved = values < personal_values
+        personal_best[improved] = positions[improved]
+        personal_values[improved] = values[improved]
+        best_idx = int(np.argmin(personal_values))
+        if personal_values[best_idx] < global_value:
+            global_value = float(personal_values[best_idx])
+            global_best = personal_best[best_idx].copy()
+
+        history.append(global_value)
+        if _converged(history, config.convergence_tolerance, config.convergence_window):
+            break
+
+    runtime = time.perf_counter() - start
+    return OptimizationResult(
+        algorithm="gahpw",
+        best_position=global_best,
+        best_value=global_value,
+        history=history,
+        iterations=len(history) - 1,
+        runtime_s=runtime,
+        seed=config.seed,
+    )
+
+
 def optimize_pso(
     objective: Objective, bounds: Array, config: OptimizerConfig
 ) -> OptimizationResult:
     rng = np.random.default_rng(config.seed)
+    integer_indices = tuple(config.integer_indices)
     dimensions = bounds.shape[0]
-    positions = rng.uniform(
-        bounds[:, 0], bounds[:, 1], size=(config.population, dimensions)
-    )
+    positions = _random_population(bounds, config.population, rng, integer_indices)
     velocities = np.zeros_like(positions)
     personal_best = positions.copy()
     personal_values = np.array([objective(p) for p in positions])
@@ -65,7 +309,12 @@ def optimize_pso(
             + config.c1 * r1 * (personal_best - positions)
             + config.c2 * r2 * (global_best - positions)
         )
-        positions = _bounded(positions + velocities, bounds)
+        positions = np.array(
+            [
+                _repair_position(position, bounds, integer_indices)
+                for position in positions + velocities
+            ]
+        )
         values = np.array([objective(p) for p in positions])
         improved = values < personal_values
         personal_best[improved] = positions[improved]
@@ -94,10 +343,9 @@ def optimize_woa(
     objective: Objective, bounds: Array, config: OptimizerConfig
 ) -> OptimizationResult:
     rng = np.random.default_rng(config.seed)
+    integer_indices = tuple(config.integer_indices)
     dimensions = bounds.shape[0]
-    positions = rng.uniform(
-        bounds[:, 0], bounds[:, 1], size=(config.population, dimensions)
-    )
+    positions = _random_population(bounds, config.population, rng, integer_indices)
     values = np.array([objective(p) for p in positions])
     best_idx = int(np.argmin(values))
     best_position = positions[best_idx].copy()
@@ -129,7 +377,7 @@ def optimize_woa(
                     * math.cos(2.0 * math.pi * spiral_offset)
                     + best_position
                 )
-            positions[i] = _bounded(new_pos, bounds)
+            positions[i] = _repair_position(new_pos, bounds, integer_indices)
         values = np.array([objective(p) for p in positions])
         best_idx = int(np.argmin(values))
         if values[best_idx] < best_value:
@@ -155,10 +403,9 @@ def optimize_hpw(
     objective: Objective, bounds: Array, config: OptimizerConfig
 ) -> OptimizationResult:
     rng = np.random.default_rng(config.seed)
+    integer_indices = tuple(config.integer_indices)
     dimensions = bounds.shape[0]
-    positions = rng.uniform(
-        bounds[:, 0], bounds[:, 1], size=(config.population, dimensions)
-    )
+    positions = _random_population(bounds, config.population, rng, integer_indices)
     velocities = np.zeros_like(positions)
     personal_best = positions.copy()
     personal_values = np.array([objective(p) for p in positions])
@@ -181,7 +428,12 @@ def optimize_hpw(
             + config.c1 * r1 * (personal_best - positions)
             + config.c2 * r2 * (global_best - positions)
         )
-        positions = _bounded(positions + velocities, bounds)
+        positions = np.array(
+            [
+                _repair_position(position, bounds, integer_indices)
+                for position in positions + velocities
+            ]
+        )
         values = np.array([objective(p) for p in positions])
         improved = values < personal_values
         personal_best[improved] = positions[improved]
@@ -214,7 +466,7 @@ def optimize_hpw(
                     * math.cos(2.0 * math.pi * spiral_offset)
                     + global_best
                 )
-            positions[i] = _bounded(new_pos, bounds)
+            positions[i] = _repair_position(new_pos, bounds, integer_indices)
 
         values = np.array([objective(p) for p in positions])
         improved = values < personal_values
@@ -244,6 +496,10 @@ def run_optimizer(
     algorithm: str, objective: Objective, bounds: Array, config: OptimizerConfig
 ) -> OptimizationResult:
     match algorithm:
+        case "ga":
+            return optimize_ga(objective, bounds, config)
+        case "gahpw":
+            return optimize_gahpw(objective, bounds, config)
         case "pso":
             return optimize_pso(objective, bounds, config)
         case "woa":

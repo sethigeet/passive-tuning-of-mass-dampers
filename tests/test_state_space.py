@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 
 from tmd.benchmarks import get_benchmark
 from tmd.models import build_controlled_mck, build_uncontrolled_mck
@@ -28,9 +27,9 @@ def test_state_space_objective_is_positive():
     assert value > 0.0
 
 
-def test_state_space_uses_first_floor_force_input():
+def test_state_space_uses_base_excitation_influence_vector():
     config = get_benchmark("example1")
     m, c, k = build_uncontrolled_mck(config)
     _, b, _, _ = second_order_to_state_space(m, c, k)
-    assert b[10, 0] == pytest.approx(1.0 / m[0, 0])
-    assert np.allclose(b[11:, 0], 0.0)
+    assert np.allclose(b[:10, 0], 0.0)
+    assert np.allclose(b[10:, 0], -1.0)
