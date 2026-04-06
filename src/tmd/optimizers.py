@@ -13,7 +13,7 @@ Objective = Callable[[Array], float]
 def _evaluate_batch(objective: Objective, positions: Array) -> Array:
     """Evaluate objective for all positions, using parallel batch if available."""
     if hasattr(objective, "batch"):
-        return objective.batch(positions)
+        return objective.batch(positions)  # type: ignore
     return np.array([objective(p) for p in positions])
 
 
@@ -27,12 +27,6 @@ def _iteration_range(config: OptimizerConfig):
         leave=False,
         dynamic_ncols=True,
     )
-
-
-def _bounded(position: Array, bounds: Array) -> Array:
-    low = bounds[:, 0]
-    high = bounds[:, 1]
-    return np.clip(position, low, high)
 
 
 def _repair_positions(
@@ -58,8 +52,11 @@ def _random_population(
     rng: np.random.Generator,
     integer_indices: tuple[int, ...],
 ) -> Array:
-    positions = rng.uniform(bounds[:, 0], bounds[:, 1], size=(population, bounds.shape[0]))
+    positions = rng.uniform(
+        bounds[:, 0], bounds[:, 1], size=(population, bounds.shape[0])
+    )
     return _repair_positions(positions, bounds, integer_indices)
+
 
 def _converged(history: list[float], tolerance: float, window: int) -> bool:
     if len(history) < window:
@@ -145,9 +142,7 @@ def optimize_ga(
                 child = _crossover(parent_a, parent_b, rng, integer_indices)
             else:
                 child = parent_a.copy()
-            next_positions.append(
-                _mutate(child, bounds, rng, config, integer_indices)
-            )
+            next_positions.append(_mutate(child, bounds, rng, config, integer_indices))
         positions = np.array(next_positions)
         values = _evaluate_batch(objective, positions)
         best_idx = int(np.argmin(values))
@@ -202,9 +197,7 @@ def optimize_gahpw(
                 child = _crossover(parent_a, parent_b, rng, integer_indices)
             else:
                 child = parent_a.copy()
-            next_positions.append(
-                _mutate(child, bounds, rng, config, integer_indices)
-            )
+            next_positions.append(_mutate(child, bounds, rng, config, integer_indices))
         positions = np.array(next_positions)
 
         values = _evaluate_batch(objective, positions)
@@ -217,9 +210,7 @@ def optimize_gahpw(
             global_best = positions[best_idx].copy()
 
         inertia = config.inertia_start + (
-            (config.inertia_end - config.inertia_start)
-            * iteration
-            / iteration_scale
+            (config.inertia_end - config.inertia_start) * iteration / iteration_scale
         )
         r1 = rng.random((config.population, dimensions))
         r2 = rng.random((config.population, dimensions))
@@ -307,9 +298,7 @@ def optimize_pso(
 
     for iteration in _iteration_range(config):
         inertia = config.inertia_start + (
-            (config.inertia_end - config.inertia_start)
-            * iteration
-            / iteration_scale
+            (config.inertia_end - config.inertia_start) * iteration / iteration_scale
         )
         r1 = rng.random((config.population, dimensions))
         r2 = rng.random((config.population, dimensions))
@@ -423,9 +412,7 @@ def optimize_hpw(
 
     for iteration in _iteration_range(config):
         inertia = config.inertia_start + (
-            (config.inertia_end - config.inertia_start)
-            * iteration
-            / iteration_scale
+            (config.inertia_end - config.inertia_start) * iteration / iteration_scale
         )
         r1 = rng.random((config.population, dimensions))
         r2 = rng.random((config.population, dimensions))
