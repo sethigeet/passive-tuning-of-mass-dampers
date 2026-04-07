@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from .types import BenchmarkRun, DynamicResponse, OptimizationResult
+from .workflows import _damper_cost, _position_to_params
 
 
 def _json_ready(value: Any) -> Any:

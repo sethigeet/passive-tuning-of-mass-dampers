@@ -1,3 +1,4 @@
+import math
 import os
 import tomllib
 from concurrent.futures import ProcessPoolExecutor
@@ -243,6 +244,15 @@ def _global_peak_displacement_ratio(
     return controlled_peak / max(uncontrolled_peak, 1.0e-12)
 
 
+def _damper_cost(params: TMDParameters) -> float:
+    return (
+        8.0 * 1000 * params.mass_ton
+        + 150.0 * params.damping_kns_per_m
+        + 2.0 * math.sqrt(params.stiffness_kn_per_m * params.mass_ton)
+        + 100_000.0
+    )
+
+
 class _ObjectiveEvaluator:
     """Picklable single-evaluation callable for use in worker processes."""
 
@@ -263,7 +273,10 @@ class _ObjectiveEvaluator:
         controlled = analyze_with_backend(
             self._config, self._record, params=params, backend=self._backend
         )
-        return _global_peak_displacement_ratio(controlled, self._uncontrolled)
+        displacement_ratio = _global_peak_displacement_ratio(
+            controlled, self._uncontrolled
+        )
+        return displacement_ratio + 1.0e-7 * _damper_cost(params)
 
 
 _worker_evaluator: _ObjectiveEvaluator | None = None
@@ -282,9 +295,7 @@ def _worker_evaluate(position: np.ndarray) -> float:
 class BatchObjective:
     """Objective function with caching and parallel batch evaluation."""
 
-    def __init__(
-        self, evaluator: _ObjectiveEvaluator, max_workers: int | None = None
-    ):
+    def __init__(self, evaluator: _ObjectiveEvaluator, max_workers: int | None = None):
         self._evaluator = evaluator
         self._cache: dict[bytes, float] = {}
         self._max_workers = max_workers or os.cpu_count() or 1
@@ -436,7 +447,7 @@ def run_example(
 ) -> BenchmarkRun:
     config = get_example_config(name)
     notes = [
-        "objective: minimize the global peak displacement ratio across all stories",
+        "objective: minimize global peak displacement ratio plus damper cost",
         "decision vector: [installation_floor, mass_ton, stiffness_kn_per_m, damping_kns_per_m]",
         "workflow optimizer: mixed-integer GA+HPW hybrid",
     ]
@@ -523,6 +534,9 @@ def run_far_field(
                 "kd": float(result.best_position[2]),
                 "cd": float(result.best_position[3]),
                 "objective": float(result.best_value),
+                "damper_cost": float(
+                    _damper_cost(_position_to_params(config, result.best_position))
+                ),
                 "iterations": int(result.iterations),
                 "runtime_s": float(result.runtime_s),
                 "scale_factor": float(scale_factor),

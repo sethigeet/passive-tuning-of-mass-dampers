@@ -112,10 +112,10 @@ Each benchmark run optimizes:
 - TMD stiffness `k_d`
 - TMD damping `c_d`
 
-The workflow objective is the global peak-displacement ratio:
+The workflow objective is to minimize the global peak-displacement ratio plus the damper cost approximation:
 
-```text
-max_i,t |x_i(t)| with TMD / max_i,t |x_i(t)| without TMD
+```tex
+(max_{i,t} |x_i(t)| with TMD / max_i,t |x_i(t)| without TMD) + \alpha * (8m + 150c + 2sqrt(km) + 100,000)
 ```
 
 Run the mass sweep:
