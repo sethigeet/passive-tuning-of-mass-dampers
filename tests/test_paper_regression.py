@@ -105,8 +105,8 @@ PAPER_DISPLACEMENTS = {
 PAPER_MASS_SWEEP_TOP = np.array([0.125, 0.116, 0.114, 0.115, 0.122, 0.130, 0.135])
 
 
-def _reference_story_displacements(benchmark_name: str) -> dict[str, np.ndarray]:
-    config = get_example_config(benchmark_name)
+def _reference_story_displacements(example_name: str) -> dict[str, np.ndarray]:
+    config = get_example_config(example_name)
     record = load_record(config.example_record_name)
     uncontrolled = analyze_with_backend(config, record, backend="numpy")
     values = {"without_tmd": uncontrolled.peak_story_displacements_m}
@@ -114,7 +114,7 @@ def _reference_story_displacements(benchmark_name: str) -> dict[str, np.ndarray]
         values[algorithm] = analyze_with_backend(
             config,
             record,
-            params=get_reference_params(benchmark_name, algorithm),
+            params=get_reference_params(example_name, algorithm),
             backend="numpy",
         ).peak_story_displacements_m
     return values

@@ -13,7 +13,7 @@ def fundamental_angular_frequency(config: BuildingConfig) -> float:
     eigenvalues = linalg.eigvalsh(k, m)
     positive = eigenvalues[eigenvalues > 0.0]
     if len(positive) == 0:
-        raise ValueError(f"Benchmark {config.name} has no positive eigenvalues.")
+        raise ValueError(f"Example {config.name} has no positive eigenvalues.")
     return float(math.sqrt(positive[0]))
 
 

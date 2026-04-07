@@ -300,8 +300,8 @@ class OptimizationResult:
 
 
 @dataclass
-class BenchmarkRun:
-    benchmark: BuildingConfig
+class ExampleRun:
+    example: BuildingConfig
     backend: str
     mode: str
     uncontrolled: DynamicResponse | None

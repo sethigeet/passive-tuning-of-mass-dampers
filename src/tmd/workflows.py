@@ -23,9 +23,9 @@ from .spectra import (
 from .types import (
     AlgorithmConfig,
     AlgorithmName,
-    BenchmarkRun,
     BuildingConfig,
     DynamicResponse,
+    ExampleRun,
     GAOptimizerSettings,
     GlobalOptimizerSettings,
     HPWOptimizerSettings,
@@ -444,7 +444,7 @@ def _example_table_payload(
 
 def run_example(
     name: str, backend: str = "auto", profile: str = "full", progress: bool = False
-) -> BenchmarkRun:
+) -> ExampleRun:
     config = get_example_config(name)
     notes = [
         "objective: minimize global peak displacement ratio plus damper cost",
@@ -457,8 +457,8 @@ def run_example(
     )
     tables = _example_table_payload(config, uncontrolled, controlled)
 
-    run = BenchmarkRun(
-        benchmark=config,
+    run = ExampleRun(
+        example=config,
         backend=backend,
         mode="simulate",
         uncontrolled=uncontrolled,

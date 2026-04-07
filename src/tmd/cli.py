@@ -30,7 +30,7 @@ def main() -> None:
             )
             print(
                 json.dumps(
-                    {"benchmark": payload.benchmark.name, "mode": payload.mode},
+                    {"example": payload.example.name, "mode": payload.mode},
                     indent=2,
                 )
             )
@@ -43,7 +43,7 @@ def main() -> None:
             )
             print(
                 json.dumps(
-                    {"benchmark": payload.benchmark.name, "mode": payload.mode},
+                    {"example": payload.example.name, "mode": payload.mode},
                     indent=2,
                 )
             )

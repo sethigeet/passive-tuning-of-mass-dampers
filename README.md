@@ -6,7 +6,7 @@ Python tooling for reproducing and extending the workflows from:
 
 The repository contains:
 
-- 10-story benchmark building definitions for the two paper examples
+- 10-story example building definitions for the two paper examples
 - linear transient response analysis with a NumPy/SciPy Newmark solver
 - an OpenSeesPy transient backend exposed through the same workflow API
 - a mixed-integer GA+HPW hybrid optimizer for joint TMD floor-placement and parameter search
@@ -40,7 +40,7 @@ This script:
 - converts the project’s selected records into canonical CSV files under `data/processed/records/`
 - writes `configs/records.toml` so record aliases resolve automatically
 
-The benchmark workflows use these prepared aliases:
+The example workflows use these prepared aliases:
 
 - `el_centro`
 - `el_centro_2`
@@ -70,8 +70,8 @@ Available commands:
 
 Workflow meanings:
 
-- `example1` runs the first 10-story benchmark under its reference record and solves a mixed-integer search over `[floor, mass, stiffness, damping]` with the built-in GA+HPW hybrid.
-- `example2` runs the second 10-story benchmark under its own reference record and solves the same mixed-integer TMD placement-and-tuning problem.
+- `example1` runs the first 10-story example under its reference record and solves a mixed-integer search over `[floor, mass, stiffness, damping]` with the built-in GA+HPW hybrid.
+- `example2` runs the second 10-story example under its own reference record and solves the same mixed-integer TMD placement-and-tuning problem.
 - `mass-sweep` keeps the Example 1 reference PSO tuning and varies only the TMD mass to reproduce the mass-sensitivity study.
 - `far-field` reruns the Example 1 mixed-integer optimization workflow across the selected FEMA P695 far-field records after scaling them to the target spectral acceleration.
 - `all` runs `example1`, `example2`, `mass-sweep`, and `far-field` in sequence.
@@ -98,14 +98,14 @@ Quick verification:
 uv run pytest -q
 ```
 
-Run the two built-in benchmark examples:
+Run the two built-in examples:
 
 ```bash
 uv run python -m tmd run example1 --profile full --backend numpy
 uv run python -m tmd run example2 --profile full --backend numpy
 ```
 
-Each benchmark run optimizes:
+Each run optimizes:
 
 - TMD installation floor `p`
 - TMD mass `m_d`

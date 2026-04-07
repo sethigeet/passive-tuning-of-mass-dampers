@@ -28,7 +28,7 @@ def test_example1_fast_workflow_runs(monkeypatch):
 
     run = run_example("example1", backend="numpy", profile="fast", progress=False)
 
-    assert run.benchmark.name == "example1"
+    assert run.example.name == "example1"
     assert run.mode == "simulate"
     assert set(run.optimizations) == {"gahpw"}
     assert set(run.controlled) == {"gahpw"}
@@ -49,7 +49,7 @@ def test_example2_fast_workflow_runs(monkeypatch):
 
     run = run_example("example2", backend="numpy", profile="fast", progress=False)
 
-    assert run.benchmark.name == "example2"
+    assert run.example.name == "example2"
     assert run.mode == "simulate"
     assert set(run.optimizations) == {"gahpw"}
     assert set(run.controlled) == {"gahpw"}
@@ -57,7 +57,7 @@ def test_example2_fast_workflow_runs(monkeypatch):
     assert run.uncontrolled.peak_story_displacements_m[-1] > 0.0
 
 
-def test_example2_uses_benchmark_specific_record(monkeypatch):
+def test_example2_uses_example_specific_record(monkeypatch):
     loaded: list[str] = []
     monkeypatch.setattr("tmd.workflows.publish_run", lambda root, run: {})
     monkeypatch.setattr(
@@ -81,11 +81,11 @@ def test_cli_run_subcommand_emits_json(monkeypatch, capsys):
         cli,
         "run_example",
         lambda *args, **kwargs: SimpleNamespace(
-            benchmark=SimpleNamespace(name="example1"), mode="simulate"
+            example=SimpleNamespace(name="example1"), mode="simulate"
         ),
     )
 
     cli.main()
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload == {"benchmark": "example1", "mode": "simulate"}
+    assert payload == {"example": "example1", "mode": "simulate"}

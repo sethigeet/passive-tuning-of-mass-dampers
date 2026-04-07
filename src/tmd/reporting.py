@@ -8,8 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from .types import BenchmarkRun, DynamicResponse, OptimizationResult
-from .workflows import _damper_cost, _position_to_params
+from .types import DynamicResponse, ExampleRun, OptimizationResult
 
 
 def _json_ready(value: Any) -> Any:
@@ -104,9 +103,9 @@ def write_manifest(root: Path, payload: dict[str, Any]) -> Path:
     return destination
 
 
-def write_report(root: Path, run: BenchmarkRun) -> Path:
+def write_report(root: Path, run: ExampleRun) -> Path:
     lines = [
-        f"# Run Summary: {run.benchmark.name}",
+        f"# Run Summary: {run.example.name}",
         "",
         f"- backend: `{run.backend}`",
         f"- mode: `{run.mode}`",
@@ -131,45 +130,45 @@ def write_report(root: Path, run: BenchmarkRun) -> Path:
     return destination
 
 
-def publish_run(root: Path, run: BenchmarkRun) -> dict[str, Path]:
+def publish_run(root: Path, run: ExampleRun) -> dict[str, Path]:
     paths = ensure_result_dirs(root)
     generated: dict[str, Path] = {}
     for table_name, table in run.tables.items():
         generated[f"table:{table_name}"] = write_csv(
-            table, paths["tables"] / f"{run.benchmark.name}_{table_name}.csv"
+            table, paths["tables"] / f"{run.example.name}_{table_name}.csv"
         )
     for algorithm, result in run.optimizations.items():
         generated[f"figure:{algorithm}_convergence"] = _plot_convergence(
             result,
-            paths["figures"] / f"{run.benchmark.name}_{algorithm}_convergence.png",
+            paths["figures"] / f"{run.example.name}_{algorithm}_convergence.png",
         )
     if "table4" in run.tables:
         generated["figure:reduction"] = _plot_reduction_bars(
             run.tables["table4"],
-            paths["figures"] / f"{run.benchmark.name}_reduction.png",
+            paths["figures"] / f"{run.example.name}_reduction.png",
             "Percentage of displacement reduction",
         )
     if "table12" in run.tables:
         generated["figure:reduction"] = _plot_reduction_bars(
             run.tables["table12"],
-            paths["figures"] / f"{run.benchmark.name}_reduction.png",
+            paths["figures"] / f"{run.example.name}_reduction.png",
             "Percentage of displacement reduction",
         )
     if run.uncontrolled is not None:
         generated["figure:time_history_uncontrolled"] = _plot_time_history(
             run.uncontrolled,
-            paths["figures"] / f"{run.benchmark.name}_uncontrolled_time_history.png",
+            paths["figures"] / f"{run.example.name}_uncontrolled_time_history.png",
         )
     for algorithm, response in run.controlled.items():
         generated[f"figure:{algorithm}_time_history"] = _plot_time_history(
             response,
-            paths["figures"] / f"{run.benchmark.name}_{algorithm}_time_history.png",
+            paths["figures"] / f"{run.example.name}_{algorithm}_time_history.png",
         )
     generated["report"] = write_report(root, run)
     generated["manifest"] = write_manifest(
         root,
         {
-            "benchmark": run.benchmark.name,
+            "example": run.example.name,
             "backend": run.backend,
             "mode": run.mode,
             "generated_at_utc": datetime.now(UTC).isoformat(),

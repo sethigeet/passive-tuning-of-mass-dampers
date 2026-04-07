@@ -17,13 +17,13 @@ _PAPER_OPTIMA = {
 
 
 def get_reference_params(
-    benchmark_name: str, algorithm: str, mass_ton: float | None = None
+    example_name: str, algorithm: str, mass_ton: float | None = None
 ) -> TMDParameters:
     try:
-        params = _PAPER_OPTIMA[benchmark_name][algorithm]
+        params = _PAPER_OPTIMA[example_name][algorithm]
     except KeyError as exc:
         raise ValueError(
-            f"Unknown paper reference pair: benchmark={benchmark_name}, algorithm={algorithm}"
+            f"Unknown paper reference pair: example={example_name}, algorithm={algorithm}"
         ) from exc
     if mass_ton is None:
         return params
