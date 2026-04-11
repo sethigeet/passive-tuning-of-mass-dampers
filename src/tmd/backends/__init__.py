@@ -1,7 +1,7 @@
 from .base import AnalysisBackend, BackendAvailability
 from .numpy_backend import numpy_backend
 from .opensees_backend import opensees_backend
-from ..types import BuildingConfig, DynamicResponse, Record, TMDParameters
+from ..types import BuildingConfig, DynamicResponse, Excitation, TMDParameters
 
 BACKENDS: dict[str, AnalysisBackend] = {
     numpy_backend.name: numpy_backend,
@@ -22,7 +22,7 @@ def availability(name: str = "opensees") -> BackendAvailability:
 
 def analyze_with_backend(
     config: BuildingConfig,
-    record: Record,
+    excitation: Excitation,
     params: TMDParameters | None = None,
     backend: str = "auto",
 ) -> DynamicResponse:
@@ -33,7 +33,7 @@ def analyze_with_backend(
             if opensees_backend.availability().available
             else numpy_backend.name
         )
-    return get_backend(selected).analyze(config, record, params=params)
+    return get_backend(selected).analyze(config, excitation, params=params)
 
 
 __all__ = [

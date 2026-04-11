@@ -1,7 +1,12 @@
 import numpy as np
 
 from tmd.examples import get_example_config
-from tmd.models import build_controlled_mck, build_uncontrolled_mck
+from tmd.io import synthetic_record
+from tmd.models import (
+    assemble_base_excitation_force,
+    build_controlled_mck,
+    build_uncontrolled_mck,
+)
 from tmd.types import TMDParameters
 
 
@@ -28,3 +33,15 @@ def test_controlled_matrices_add_tmd_coupling_at_selected_floor_and_tmd():
     assert c[tmd, floor_index] < 0.0
     assert np.allclose(k[:floor_index, tmd], 0.0)
     assert np.allclose(k[floor_index + 1 : tmd, tmd], 0.0)
+
+
+def test_base_excitation_force_matches_minus_mr_ug():
+    config = get_example_config("example1")
+    record = synthetic_record("unit_test", duration_s=0.2, dt=0.1)
+    m, _, _ = build_uncontrolled_mck(config)
+
+    force = assemble_base_excitation_force(m, record)
+
+    expected = -np.outer(record.accel_mps2, m @ np.ones(config.n_stories))
+    assert force.shape == (len(record.time), config.n_stories)
+    assert np.allclose(force, expected)

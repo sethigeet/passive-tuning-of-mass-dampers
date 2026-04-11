@@ -8,6 +8,7 @@ Array = np.ndarray
 
 AlgorithmName = Literal["ga", "pso", "woa", "hpw", "gahpw"]
 ALGORITHMS: tuple[AlgorithmName, ...] = ("ga", "pso", "woa", "hpw", "gahpw")
+HazardFamily = Literal["seismic", "wind"]
 
 
 @dataclass(frozen=True)
@@ -264,17 +265,39 @@ class BuildingConfig:
 
 
 @dataclass(frozen=True)
-class Record:
+class BaseAccelerationExcitation:
     name: str
     time: Array
     accel_mps2: Array
     source_path: Path | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def dt(self) -> float:
         if len(self.time) < 2:
             raise ValueError("Ground motion record must contain at least two samples.")
         return float(self.time[1] - self.time[0])
+
+
+Record = BaseAccelerationExcitation
+
+
+@dataclass(frozen=True)
+class FloorForceExcitation:
+    name: str
+    time: Array
+    floor_forces_n: Array
+    source_path: Path | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def dt(self) -> float:
+        if len(self.time) < 2:
+            raise ValueError("Wind excitation must contain at least two samples.")
+        return float(self.time[1] - self.time[0])
+
+
+Excitation = BaseAccelerationExcitation | FloorForceExcitation
 
 
 @dataclass
@@ -307,6 +330,37 @@ class ExampleRun:
     uncontrolled: DynamicResponse | None
     controlled: dict[str, DynamicResponse]
     optimizations: dict[str, OptimizationResult]
+    tables: dict[str, Any]
+    figures: dict[str, Path]
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class HazardCase:
+    name: str
+    family: HazardFamily
+    excitation: Excitation
+    weight: float = 1.0
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class HazardBundle:
+    name: str
+    cases: tuple[HazardCase, ...]
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class MultiHazardRun:
+    example: BuildingConfig
+    backend: str
+    mode: str
+    hazard_bundle: HazardBundle
+    optimization: OptimizationResult
+    uncontrolled: dict[str, DynamicResponse]
+    controlled: dict[str, DynamicResponse]
+    case_objectives: list[dict[str, Any]]
     tables: dict[str, Any]
     figures: dict[str, Path]
     notes: list[str] = field(default_factory=list)

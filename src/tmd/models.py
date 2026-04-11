@@ -2,7 +2,14 @@ from dataclasses import asdict
 
 import numpy as np
 
-from .types import Array, BuildingConfig, TMDParameters
+from .types import (
+    Array,
+    BaseAccelerationExcitation,
+    BuildingConfig,
+    Excitation,
+    FloorForceExcitation,
+    TMDParameters,
+)
 
 TON_TO_KG = 1000.0
 KN_TO_N = 1000.0
@@ -75,6 +82,39 @@ def build_controlled_mck(
 
 def influence_vector(size: int) -> Array:
     return np.ones(size, dtype=float)
+
+
+def assemble_base_excitation_force(
+    m: Array, excitation: BaseAccelerationExcitation
+) -> Array:
+    r = influence_vector(m.shape[0])
+    return -np.outer(excitation.accel_mps2, m @ r)
+
+
+def pad_story_forces(config: BuildingConfig, forces_n: Array, n_dof: int) -> Array:
+    if forces_n.ndim != 2:
+        raise ValueError("Wind floor forces must be a 2D array.")
+    if forces_n.shape[1] != config.n_stories:
+        raise ValueError(
+            f"Wind floor force width must match {config.n_stories} stories."
+        )
+    if n_dof < config.n_stories:
+        raise ValueError("System DOF count cannot be smaller than number of stories.")
+    external = np.zeros((forces_n.shape[0], n_dof), dtype=float)
+    external[:, : config.n_stories] = forces_n
+    return external
+
+
+def assemble_external_force(
+    config: BuildingConfig,
+    m: Array,
+    excitation: Excitation,
+) -> Array:
+    if isinstance(excitation, BaseAccelerationExcitation):
+        return assemble_base_excitation_force(m, excitation)
+    if isinstance(excitation, FloorForceExcitation):
+        return pad_story_forces(config, excitation.floor_forces_n, m.shape[0])
+    raise TypeError(f"Unsupported excitation: {type(excitation)!r}")
 
 
 def normalize_config(config: BuildingConfig) -> dict[str, object]:

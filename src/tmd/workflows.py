@@ -5,16 +5,17 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import replace
 from functools import lru_cache
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 from tqdm.auto import tqdm
 
 from .backends import analyze_with_backend
 from .examples import get_example_config, with_tmd_mass
-from .io import load_record
+from .io import load_record, load_wind_bundle
 from .optimizers import OptimizerConfig, run_optimizer
 from .reference import get_reference_params
-from .reporting import publish_run
+from .reporting import publish_multi_hazard_run, publish_run
 from .spectra import (
     fundamental_period,
     pseudo_spectral_acceleration,
@@ -27,8 +28,11 @@ from .types import (
     DynamicResponse,
     ExampleRun,
     GAOptimizerSettings,
+    HazardBundle,
+    HazardCase,
     GlobalOptimizerSettings,
     HPWOptimizerSettings,
+    MultiHazardRun,
     OptimizationProfileSettings,
     OptimizationResult,
     PSOOptimizerSettings,
@@ -259,19 +263,19 @@ class _ObjectiveEvaluator:
     def __init__(
         self,
         config: BuildingConfig,
-        record,
+        excitation,
         backend: str,
         uncontrolled: DynamicResponse,
     ):
         self._config = config
-        self._record = record
+        self._excitation = excitation
         self._backend = backend
         self._uncontrolled = uncontrolled
 
     def __call__(self, position: np.ndarray) -> float:
         params = _position_to_params(self._config, position)
         controlled = analyze_with_backend(
-            self._config, self._record, params=params, backend=self._backend
+            self._config, self._excitation, params=params, backend=self._backend
         )
         displacement_ratio = _global_peak_displacement_ratio(
             controlled, self._uncontrolled
@@ -279,10 +283,41 @@ class _ObjectiveEvaluator:
         return displacement_ratio + 1.0e-7 * _damper_cost(params)
 
 
-_worker_evaluator: _ObjectiveEvaluator | None = None
+class _MultiHazardObjectiveEvaluator:
+    """Picklable multi-hazard objective evaluator."""
+
+    def __init__(
+        self,
+        config: BuildingConfig,
+        hazard_bundle: HazardBundle,
+        backend: str,
+        uncontrolled: dict[str, DynamicResponse],
+    ):
+        self._config = config
+        self._hazard_bundle = hazard_bundle
+        self._backend = backend
+        self._uncontrolled = uncontrolled
+
+    def __call__(self, position: np.ndarray) -> float:
+        params = _position_to_params(self._config, position)
+        total = 0.0
+        for case in self._hazard_bundle.cases:
+            controlled = analyze_with_backend(
+                self._config,
+                case.excitation,
+                params=params,
+                backend=self._backend,
+            )
+            total += case.weight * _global_peak_displacement_ratio(
+                controlled, self._uncontrolled[case.name]
+            )
+        return total + 1.0e-7 * _damper_cost(params)
 
 
-def _init_worker(evaluator: _ObjectiveEvaluator) -> None:
+_worker_evaluator: Callable[[np.ndarray], float] | None = None
+
+
+def _init_worker(evaluator: Callable[[np.ndarray], float]) -> None:
     global _worker_evaluator
     _worker_evaluator = evaluator
 
@@ -295,7 +330,9 @@ def _worker_evaluate(position: np.ndarray) -> float:
 class BatchObjective:
     """Objective function with caching and parallel batch evaluation."""
 
-    def __init__(self, evaluator: _ObjectiveEvaluator, max_workers: int | None = None):
+    def __init__(
+        self, evaluator: Callable[[np.ndarray], float], max_workers: int | None = None
+    ):
         self._evaluator = evaluator
         self._cache: dict[bytes, float] = {}
         self._max_workers = max_workers or os.cpu_count() or 1
@@ -341,17 +378,80 @@ class BatchObjective:
             self._pool = None
 
 
-def _objective_factory(config: BuildingConfig, record, backend: str):
+def _objective_factory(config: BuildingConfig, excitation, backend: str):
     uncontrolled_cache = analyze_with_backend(
-        config, record, params=None, backend=backend
+        config, excitation, params=None, backend=backend
     )
-    evaluator = _ObjectiveEvaluator(config, record, backend, uncontrolled_cache)
+    evaluator = _ObjectiveEvaluator(config, excitation, backend, uncontrolled_cache)
     objective = BatchObjective(evaluator)
     return objective, uncontrolled_cache
 
 
+def _multi_hazard_objective_factory(
+    config: BuildingConfig, hazard_bundle: HazardBundle, backend: str
+) -> tuple[BatchObjective, dict[str, DynamicResponse]]:
+    uncontrolled = {
+        case.name: analyze_with_backend(
+            config, case.excitation, params=None, backend=backend
+        )
+        for case in hazard_bundle.cases
+    }
+    evaluator = _MultiHazardObjectiveEvaluator(
+        config, hazard_bundle, backend, uncontrolled
+    )
+    return BatchObjective(evaluator), uncontrolled
+
+
 def _load_example_record(config: BuildingConfig):
     return load_record(config.example_record_name)
+
+
+def _default_wind_bundle_name(config: BuildingConfig) -> str:
+    return f"{config.name}_dev"
+
+
+def _build_multi_hazard_bundle(
+    config: BuildingConfig, *, wind_bundle_name: str | None = None
+) -> HazardBundle:
+    seismic_cases = (
+        HazardCase(
+            name=config.example_record_name,
+            family="seismic",
+            excitation=_load_example_record(config),
+        ),
+    )
+    wind_cases = tuple(
+        HazardCase(name=excitation.name, family="wind", excitation=excitation)
+        for excitation in load_wind_bundle(
+            config, wind_bundle_name or _default_wind_bundle_name(config)
+        )
+    )
+    weighted_cases: list[HazardCase] = []
+    for case in seismic_cases:
+        weighted_cases.append(
+            HazardCase(
+                name=case.name,
+                family=case.family,
+                excitation=case.excitation,
+                weight=0.5 / len(seismic_cases),
+                metadata=case.metadata,
+            )
+        )
+    for case in wind_cases:
+        weighted_cases.append(
+            HazardCase(
+                name=case.name,
+                family=case.family,
+                excitation=case.excitation,
+                weight=0.5 / len(wind_cases),
+                metadata=case.metadata,
+            )
+        )
+    return HazardBundle(
+        name=wind_bundle_name or _default_wind_bundle_name(config),
+        cases=tuple(weighted_cases),
+        metadata={"hazards": ("seismic", "wind")},
+    )
 
 
 def _scaled_far_field_record(config: BuildingConfig, record_name: str):
@@ -363,14 +463,14 @@ def _scaled_far_field_record(config: BuildingConfig, record_name: str):
 
 
 def _optimize_algorithms_for_record(
-    config: BuildingConfig, record, backend: str, profile: str, progress: bool = False
+    config: BuildingConfig, excitation, backend: str, profile: str, progress: bool = False
 ) -> tuple[DynamicResponse, dict[str, OptimizationResult], dict[str, DynamicResponse]]:
-    objective, uncontrolled = _objective_factory(config, record, backend)
+    objective, uncontrolled = _objective_factory(config, excitation, backend)
     optimizations: dict[str, OptimizationResult] = {}
     controlled: dict[str, DynamicResponse] = {}
     try:
         for algorithm in WORKFLOW_ALGORITHMS:
-            label = f"{record.name}:{algorithm.upper()}"
+            label = f"{excitation.name}:{algorithm.upper()}"
             result = run_optimizer(
                 algorithm,
                 objective,
@@ -382,11 +482,64 @@ def _optimize_algorithms_for_record(
             params = _position_to_params(config, result.best_position)
             optimizations[algorithm] = result
             controlled[algorithm] = analyze_with_backend(
-                config, record, params=params, backend=backend
+                config, excitation, params=params, backend=backend
             )
     finally:
         objective.shutdown()
     return uncontrolled, optimizations, controlled
+
+
+def _optimize_hazard_bundle(
+    config: BuildingConfig,
+    hazard_bundle: HazardBundle,
+    backend: str,
+    profile: str,
+    progress: bool = False,
+) -> tuple[
+    OptimizationResult,
+    dict[str, DynamicResponse],
+    dict[str, DynamicResponse],
+    list[dict[str, object]],
+]:
+    objective, uncontrolled = _multi_hazard_objective_factory(
+        config, hazard_bundle, backend
+    )
+    try:
+        algorithm = WORKFLOW_ALGORITHMS[0]
+        result = run_optimizer(
+            algorithm,
+            objective,
+            _bounds(config),
+            _optimizer_config(
+                algorithm,
+                profile,
+                show_progress=progress,
+                progress_label=f"{hazard_bundle.name}:{algorithm.upper()}",
+            ),
+        )
+    finally:
+        objective.shutdown()
+
+    params = _position_to_params(config, result.best_position)
+    controlled = {
+        case.name: analyze_with_backend(
+            config, case.excitation, params=params, backend=backend
+        )
+        for case in hazard_bundle.cases
+    }
+    case_objectives = []
+    for case in hazard_bundle.cases:
+        ratio = _global_peak_displacement_ratio(controlled[case.name], uncontrolled[case.name])
+        case_objectives.append(
+            {
+                "case": case.name,
+                "family": case.family,
+                "weight": float(case.weight),
+                "displacement_ratio": float(ratio),
+                "weighted_contribution": float(case.weight * ratio),
+            }
+        )
+    return result, uncontrolled, controlled, case_objectives
 
 
 def _displacement_table(
@@ -442,33 +595,131 @@ def _example_table_payload(
     }
 
 
+def _table_slug(name: str) -> str:
+    return (
+        name.lower()
+        .replace(" ", "_")
+        .replace(",", "")
+        .replace(":", "_")
+        .replace("/", "_")
+    )
+
+
+def _single_response_tables(
+    uncontrolled: DynamicResponse, controlled: DynamicResponse
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    controlled_map = {"with_tmd": controlled}
+    return (
+        _displacement_table(uncontrolled, controlled_map),
+        _reduction_table(uncontrolled, controlled_map),
+    )
+
+
+def _multi_hazard_tables(
+    config: BuildingConfig,
+    hazard_bundle: HazardBundle,
+    optimization: OptimizationResult,
+    uncontrolled: dict[str, DynamicResponse],
+    controlled: dict[str, DynamicResponse],
+    case_objectives: list[dict[str, object]],
+) -> dict[str, list[dict[str, object]]]:
+    params = _position_to_params(config, optimization.best_position)
+    tables: dict[str, list[dict[str, object]]] = {
+        "aggregate_summary": [
+            {
+                "hazard_bundle": hazard_bundle.name,
+                "floor": params.installation_floor,
+                "mass_ton": float(params.mass_ton),
+                "kd": float(params.stiffness_kn_per_m),
+                "cd": float(params.damping_kns_per_m),
+                "objective": float(optimization.best_value),
+                "damper_cost": float(_damper_cost(params)),
+                "iterations": int(optimization.iterations),
+                "runtime_s": float(optimization.runtime_s),
+            }
+        ],
+        "objective_breakdown": case_objectives,
+    }
+    for case in hazard_bundle.cases:
+        slug = _table_slug(case.name)
+        displacement, reduction = _single_response_tables(
+            uncontrolled[case.name], controlled[case.name]
+        )
+        tables[f"{slug}_displacement"] = displacement
+        tables[f"{slug}_reduction"] = reduction
+    return tables
+
+
 def run_example(
-    name: str, backend: str = "auto", profile: str = "full", progress: bool = False
-) -> ExampleRun:
+    name: str,
+    backend: str = "auto",
+    profile: str = "full",
+    progress: bool = False,
+    hazards: str = "seismic",
+    wind_bundle: str | None = None,
+) -> ExampleRun | MultiHazardRun:
     config = get_example_config(name)
+    if hazards == "seismic":
+        notes = [
+            "objective: minimize global peak displacement ratio plus damper cost",
+            "decision vector: [installation_floor, mass_ton, stiffness_kn_per_m, damping_kns_per_m]",
+            "workflow optimizer: mixed-integer GA+HPW hybrid",
+        ]
+        record = _load_example_record(config)
+        uncontrolled, optimizations, controlled = _optimize_algorithms_for_record(
+            config, record, backend, profile, progress=progress
+        )
+        tables = _example_table_payload(config, uncontrolled, controlled)
+
+        run = ExampleRun(
+            example=config,
+            backend=backend,
+            mode="simulate",
+            uncontrolled=uncontrolled,
+            controlled=controlled,
+            optimizations=optimizations,
+            tables=tables,
+            figures={},
+            notes=notes,
+        )
+        run.figures = publish_run(ROOT, run)
+        return run
+
+    if hazards != "seismic,wind":
+        raise ValueError(
+            "Unsupported hazards selection. Use 'seismic' or 'seismic,wind'."
+        )
+
+    if backend == "auto":
+        backend = "numpy"
+
+    hazard_bundle = _build_multi_hazard_bundle(config, wind_bundle_name=wind_bundle)
     notes = [
-        "objective: minimize global peak displacement ratio plus damper cost",
+        "objective: minimize weighted multi-hazard displacement ratio plus damper cost",
         "decision vector: [installation_floor, mass_ton, stiffness_kn_per_m, damping_kns_per_m]",
         "workflow optimizer: mixed-integer GA+HPW hybrid",
+        f"hazards: {hazards}",
+        f"wind_bundle: {hazard_bundle.name}",
     ]
-    record = _load_example_record(config)
-    uncontrolled, optimizations, controlled = _optimize_algorithms_for_record(
-        config, record, backend, profile, progress=progress
+    optimization, uncontrolled, controlled, case_objectives = _optimize_hazard_bundle(
+        config, hazard_bundle, backend, profile, progress=progress
     )
-    tables = _example_table_payload(config, uncontrolled, controlled)
-
-    run = ExampleRun(
+    run = MultiHazardRun(
         example=config,
         backend=backend,
         mode="simulate",
+        hazard_bundle=hazard_bundle,
+        optimization=optimization,
         uncontrolled=uncontrolled,
         controlled=controlled,
-        optimizations=optimizations,
-        tables=tables,
+        case_objectives=case_objectives,
+        tables=_multi_hazard_tables(
+            config, hazard_bundle, optimization, uncontrolled, controlled, case_objectives
+        ),
         figures={},
         notes=notes,
     )
-    run.figures = publish_run(ROOT, run)
+    run.figures = publish_multi_hazard_run(ROOT, run)
     return run
 
 

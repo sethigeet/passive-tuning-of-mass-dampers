@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from .types import DynamicResponse, ExampleRun, OptimizationResult
+from .types import DynamicResponse, ExampleRun, MultiHazardRun, OptimizationResult
 
 
 def _json_ready(value: Any) -> Any:
@@ -130,6 +130,37 @@ def write_report(root: Path, run: ExampleRun) -> Path:
     return destination
 
 
+def write_multi_hazard_report(root: Path, run: MultiHazardRun) -> Path:
+    params = run.optimization.best_position
+    lines = [
+        f"# Multi-Hazard Run Summary: {run.example.name}",
+        "",
+        f"- backend: `{run.backend}`",
+        f"- mode: `{run.mode}`",
+        f"- hazard bundle: `{run.hazard_bundle.name}`",
+        (
+            "- best design: "
+            f"floor={int(np.rint(params[0]))}, mass={params[1]:.4f}, "
+            f"kd={params[2]:.4f}, cd={params[3]:.4f}"
+        ),
+        f"- aggregate objective: `{run.optimization.best_value:.6f}`",
+    ]
+    for note in run.notes:
+        lines.append(f"- note: {note}")
+    lines.append("")
+    lines.append("## Case contributions")
+    for row in run.case_objectives:
+        lines.append(
+            "- "
+            f"{row['case']} ({row['family']}): ratio={row['displacement_ratio']:.6f}, "
+            f"weight={row['weight']:.4f}, weighted={row['weighted_contribution']:.6f}"
+        )
+    destination = root / "results/summary/multi_hazard_report.md"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return destination
+
+
 def publish_run(root: Path, run: ExampleRun) -> dict[str, Path]:
     paths = ensure_result_dirs(root)
     generated: dict[str, Path] = {}
@@ -176,6 +207,40 @@ def publish_run(root: Path, run: ExampleRun) -> dict[str, Path]:
             "optimizations": {
                 name: asdict(result) for name, result in run.optimizations.items()
             },
+        },
+    )
+    return generated
+
+
+def publish_multi_hazard_run(root: Path, run: MultiHazardRun) -> dict[str, Path]:
+    paths = ensure_result_dirs(root)
+    generated: dict[str, Path] = {}
+    for table_name, table in run.tables.items():
+        generated[f"table:{table_name}"] = write_csv(
+            table, paths["tables"] / f"{run.example.name}_{table_name}.csv"
+        )
+    generated["figure:convergence"] = _plot_convergence(
+        run.optimization,
+        paths["figures"] / f"{run.example.name}_multi_hazard_convergence.png",
+    )
+    for case_name, response in run.controlled.items():
+        slug = case_name.lower().replace(" ", "_").replace(",", "").replace("/", "_")
+        generated[f"figure:{slug}_time_history"] = _plot_time_history(
+            response,
+            paths["figures"] / f"{run.example.name}_{slug}_time_history.png",
+        )
+    generated["report"] = write_multi_hazard_report(root, run)
+    generated["manifest"] = write_manifest(
+        root,
+        {
+            "example": run.example.name,
+            "backend": run.backend,
+            "mode": run.mode,
+            "hazard_bundle": run.hazard_bundle.name,
+            "generated_at_utc": datetime.now(UTC).isoformat(),
+            "notes": run.notes,
+            "optimization": asdict(run.optimization),
+            "case_objectives": run.case_objectives,
         },
     )
     return generated

@@ -4,7 +4,7 @@ import numpy as np
 from scipy import linalg
 
 from .integration import newmark_linear
-from .models import build_uncontrolled_mck
+from .models import assemble_base_excitation_force, build_uncontrolled_mck
 from .types import BuildingConfig, Record
 
 
@@ -32,7 +32,10 @@ def pseudo_spectral_acceleration(
         m=np.array([[1.0]], dtype=float),
         c=np.array([[damping]], dtype=float),
         k=np.array([[wn * wn]], dtype=float),
-        record=record,
+        time=record.time,
+        external=assemble_base_excitation_force(
+            np.array([[1.0]], dtype=float), record
+        ),
     )
     return float((wn * wn) * response.peak_story_displacements_m[0])
 

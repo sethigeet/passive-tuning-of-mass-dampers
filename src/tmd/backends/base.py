@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Protocol
 
-from ..types import BuildingConfig, DynamicResponse, Record, TMDParameters
+from ..types import BuildingConfig, DynamicResponse, Excitation, TMDParameters
 
 
 @dataclass(frozen=True)
@@ -18,6 +18,6 @@ class AnalysisBackend(Protocol):
     def analyze(
         self,
         config: BuildingConfig,
-        record: Record,
+        excitation: Excitation,
         params: TMDParameters | None = None,
     ) -> DynamicResponse: ...

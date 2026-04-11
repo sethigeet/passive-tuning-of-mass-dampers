@@ -2,7 +2,14 @@ import numpy as np
 
 from .base import BackendAvailability
 from ..models import resolve_tmd_installation_floor
-from ..types import BuildingConfig, DynamicResponse, Record, TMDParameters
+from ..types import (
+    BaseAccelerationExcitation,
+    BuildingConfig,
+    DynamicResponse,
+    Excitation,
+    FloorForceExcitation,
+    TMDParameters,
+)
 
 try:
     from openseespy import opensees as ops
@@ -58,12 +65,23 @@ def _build_opensees_model(config: BuildingConfig, params: TMDParameters | None) 
 
 
 def _run_opensees_transient(
-    config: BuildingConfig, record: Record, params: TMDParameters | None
+    config: BuildingConfig, excitation: Excitation, params: TMDParameters | None
 ) -> DynamicResponse:
     _build_opensees_model(config, params)
-    ts_values = list(record.accel_mps2.tolist())
-    ops.timeSeries("Path", 1, "-dt", record.dt, "-values", *ts_values)
-    ops.pattern("UniformExcitation", 1, 1, "-accel", 1)
+    if isinstance(excitation, BaseAccelerationExcitation):
+        ts_values = list(excitation.accel_mps2.tolist())
+        ops.timeSeries("Path", 1, "-dt", excitation.dt, "-values", *ts_values)
+        ops.pattern("UniformExcitation", 1, 1, "-accel", 1)
+    elif isinstance(excitation, FloorForceExcitation):
+        for story in range(1, config.n_stories + 1):
+            ts_tag = 100 + story
+            pattern_tag = 200 + story
+            values = list(excitation.floor_forces_n[:, story - 1].tolist())
+            ops.timeSeries("Path", ts_tag, "-dt", excitation.dt, "-values", *values)
+            ops.pattern("Plain", pattern_tag, ts_tag)
+            ops.load(story, 1.0)
+    else:
+        raise TypeError(f"Unsupported excitation: {type(excitation)!r}")
     ops.constraints("Plain")
     ops.numberer("RCM")
     ops.system("BandGeneral")
@@ -75,12 +93,12 @@ def _run_opensees_transient(
     nodes = list(range(1, config.n_stories + 1))
     if params is not None:
         nodes.append(config.n_stories + 1)
-    displacements = np.zeros((len(record.time), len(nodes)), dtype=float)
+    displacements = np.zeros((len(excitation.time), len(nodes)), dtype=float)
     velocities = np.zeros_like(displacements)
     accelerations = np.zeros_like(displacements)
-    for step in range(len(record.time)):
+    for step in range(len(excitation.time)):
         if step > 0:
-            code = ops.analyze(1, record.dt)
+            code = ops.analyze(1, excitation.dt)
             if code != 0:
                 raise RuntimeError(
                     f"OpenSees analysis failed at step {step} with code {code}"
@@ -94,7 +112,7 @@ def _run_opensees_transient(
     story_acc = accelerations[:, : config.n_stories]
     peaks = np.max(np.abs(story_disp), axis=0)
     return DynamicResponse(
-        time=record.time,
+        time=excitation.time,
         relative_displacements_m=story_disp,
         relative_velocities_mps=story_vel,
         relative_accelerations_mps2=story_acc,
@@ -117,13 +135,13 @@ class OpenSeesBackend:
     def analyze(
         self,
         config: BuildingConfig,
-        record: Record,
+        excitation: Excitation,
         params: TMDParameters | None = None,
     ) -> DynamicResponse:
         status = self.availability()
         if not status.available:
             raise RuntimeError(status.reason)
-        return _run_opensees_transient(config, record, params)
+        return _run_opensees_transient(config, excitation, params)
 
 
 opensees_backend = OpenSeesBackend()

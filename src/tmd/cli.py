@@ -16,6 +16,10 @@ def main() -> None:
         "--backend", choices=["auto", "numpy", "opensees"], default="auto"
     )
     run_parser.add_argument("--profile", choices=["fast", "full"], default="full")
+    run_parser.add_argument(
+        "--hazards", choices=["seismic", "seismic,wind"], default="seismic"
+    )
+    run_parser.add_argument("--wind-bundle", default=None)
     run_parser.add_argument("--no-progress", action="store_true")
 
     args = parser.parse_args()
@@ -27,10 +31,23 @@ def main() -> None:
                 backend=args.backend,
                 profile=args.profile,
                 progress=show_progress,
+                hazards=args.hazards,
+                wind_bundle=args.wind_bundle,
             )
             print(
                 json.dumps(
-                    {"example": payload.example.name, "mode": payload.mode},
+                    (
+                        {
+                            "example": payload.example.name,
+                            "mode": payload.mode,
+                        }
+                        if args.hazards == "seismic"
+                        else {
+                            "example": payload.example.name,
+                            "mode": payload.mode,
+                            "hazards": args.hazards,
+                        }
+                    ),
                     indent=2,
                 )
             )
@@ -40,10 +57,23 @@ def main() -> None:
                 backend=args.backend,
                 profile=args.profile,
                 progress=show_progress,
+                hazards=args.hazards,
+                wind_bundle=args.wind_bundle,
             )
             print(
                 json.dumps(
-                    {"example": payload.example.name, "mode": payload.mode},
+                    (
+                        {
+                            "example": payload.example.name,
+                            "mode": payload.mode,
+                        }
+                        if args.hazards == "seismic"
+                        else {
+                            "example": payload.example.name,
+                            "mode": payload.mode,
+                            "hazards": args.hazards,
+                        }
+                    ),
                     indent=2,
                 )
             )
@@ -68,6 +98,8 @@ def main() -> None:
                         backend=args.backend,
                         profile=args.profile,
                         progress=show_progress,
+                        hazards=args.hazards,
+                        wind_bundle=args.wind_bundle,
                     ).mode
                 },
                 "example2": {
@@ -76,6 +108,8 @@ def main() -> None:
                         backend=args.backend,
                         profile=args.profile,
                         progress=show_progress,
+                        hazards=args.hazards,
+                        wind_bundle=args.wind_bundle,
                     ).mode
                 },
                 "mass_sweep": run_mass_sweep(backend=args.backend)["mode"],

@@ -1,8 +1,7 @@
 import numpy as np
 from numba import njit
 
-from .models import influence_vector
-from .types import Array, DynamicResponse, Record
+from .types import Array, DynamicResponse
 
 
 @njit(cache=True)
@@ -31,16 +30,18 @@ def newmark_linear(
     m: Array,
     c: Array,
     k: Array,
-    record: Record,
+    time: Array,
+    external: Array,
     gamma: float = 0.5,
     beta: float = 0.25,
 ) -> DynamicResponse:
     n = m.shape[0]
-    dt = record.dt
-    r = influence_vector(n)
-
+    if external.shape[1] != n:
+        raise ValueError("External force history width must match system DOF count.")
+    if len(time) < 2:
+        raise ValueError("Excitation time history must contain at least two samples.")
+    dt = float(time[1] - time[0])
     inv_m = np.linalg.inv(m)
-    external = -np.outer(record.accel_mps2, m @ r)
 
     a0 = 1.0 / (beta * dt * dt)
     a1 = gamma / (beta * dt)
@@ -59,7 +60,7 @@ def newmark_linear(
     peaks = np.max(np.abs(u), axis=0)
     objective = float(np.max(peaks))
     return DynamicResponse(
-        time=record.time,
+        time=time,
         relative_displacements_m=u,
         relative_velocities_mps=v,
         relative_accelerations_mps2=a,

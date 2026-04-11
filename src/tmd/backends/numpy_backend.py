@@ -2,18 +2,34 @@ import numpy as np
 
 from .base import BackendAvailability
 from ..integration import newmark_linear
-from ..models import build_controlled_mck, build_uncontrolled_mck
-from ..types import BuildingConfig, DynamicResponse, Record, TMDParameters
+from ..models import assemble_external_force, build_controlled_mck, build_uncontrolled_mck
+from ..types import BuildingConfig, DynamicResponse, Excitation, TMDParameters
 
 
-def _analyze_uncontrolled(config: BuildingConfig, record: Record) -> DynamicResponse:
-    return newmark_linear(*build_uncontrolled_mck(config), record)
+def _analyze_uncontrolled(
+    config: BuildingConfig, excitation: Excitation
+) -> DynamicResponse:
+    m, c, k = build_uncontrolled_mck(config)
+    return newmark_linear(
+        m,
+        c,
+        k,
+        time=excitation.time,
+        external=assemble_external_force(config, m, excitation),
+    )
 
 
 def _analyze_controlled(
-    config: BuildingConfig, params: TMDParameters, record: Record
+    config: BuildingConfig, params: TMDParameters, excitation: Excitation
 ) -> DynamicResponse:
-    response = newmark_linear(*build_controlled_mck(config, params), record)
+    m, c, k = build_controlled_mck(config, params)
+    response = newmark_linear(
+        m,
+        c,
+        k,
+        time=excitation.time,
+        external=assemble_external_force(config, m, excitation),
+    )
     story_disp = response.relative_displacements_m[:, : config.n_stories]
     response.relative_displacements_m = story_disp
     response.relative_velocities_mps = response.relative_velocities_mps[
@@ -36,12 +52,12 @@ class NumPyBackend:
     def analyze(
         self,
         config: BuildingConfig,
-        record: Record,
+        excitation: Excitation,
         params: TMDParameters | None = None,
     ) -> DynamicResponse:
         if params is None:
-            return _analyze_uncontrolled(config, record)
-        return _analyze_controlled(config, params, record)
+            return _analyze_uncontrolled(config, excitation)
+        return _analyze_controlled(config, params, excitation)
 
 
 numpy_backend = NumPyBackend()

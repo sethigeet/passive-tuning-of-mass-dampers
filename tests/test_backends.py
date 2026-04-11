@@ -5,6 +5,7 @@ from tmd.backends import analyze_with_backend, availability
 from tmd.examples import get_example_config
 from tmd.io import synthetic_record
 from tmd.reference import get_reference_params
+from tmd.types import FloorForceExcitation
 
 
 def _assert_matching_response_fields(opensees_response, numpy_response) -> None:
@@ -66,6 +67,35 @@ def test_opensees_backend_tracks_numpy_backend_for_controlled_short_record():
     )
     opensees_response = analyze_with_backend(
         config, record, params=params, backend="opensees"
+    )
+
+    _assert_matching_response_fields(opensees_response, numpy_response)
+
+
+def test_opensees_backend_tracks_numpy_backend_for_wind_floor_forces():
+    if not availability("opensees").available:
+        pytest.skip("OpenSees backend unavailable")
+
+    config = get_example_config("example1")
+    time = np.arange(0.0, 0.55, 0.05)
+    forces = np.column_stack(
+        [
+            500.0 * np.sin(2.0 * np.pi * (0.6 + 0.03 * story) * time)
+            for story in range(config.n_stories)
+        ]
+    )
+    excitation = FloorForceExcitation(
+        name="wind_short",
+        time=time,
+        floor_forces_n=forces,
+    )
+    params = get_reference_params("example1", "pso")
+
+    numpy_response = analyze_with_backend(
+        config, excitation, params=params, backend="numpy"
+    )
+    opensees_response = analyze_with_backend(
+        config, excitation, params=params, backend="opensees"
     )
 
     _assert_matching_response_fields(opensees_response, numpy_response)
