@@ -32,6 +32,23 @@ def build_uncontrolled_mck(config: BuildingConfig) -> tuple[Array, Array, Array]
     return masses, damping, stiffness
 
 
+def build_scaled_uncontrolled_mck(
+    config: BuildingConfig, area_scale_factor: float
+) -> tuple[Array, Array, Array]:
+    if area_scale_factor <= 0.0:
+        raise ValueError("Area scale factor must be positive.")
+
+    masses, damping, stiffness = build_uncontrolled_mck(config)
+    mass_scale = area_scale_factor
+    stiffness_scale = area_scale_factor**2
+    damping_scale = area_scale_factor**1.5
+    return (
+        masses * mass_scale,
+        damping * damping_scale,
+        stiffness * stiffness_scale,
+    )
+
+
 def resolve_tmd_installation_floor(config: BuildingConfig, params: TMDParameters) -> int:
     floor = config.n_stories if params.installation_floor is None else params.installation_floor
     if isinstance(floor, bool) or not isinstance(floor, int):

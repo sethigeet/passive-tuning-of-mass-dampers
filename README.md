@@ -67,6 +67,8 @@ Available commands:
 - `run mass-sweep`
 - `run far-field`
 - `run all`
+- `estimate-upgrade example1 <table.csv>`
+- `estimate-upgrade example2 <table.csv>`
 
 Workflow meanings:
 
@@ -75,12 +77,20 @@ Workflow meanings:
 - `mass-sweep` keeps the Example 1 reference PSO tuning and varies only the TMD mass to reproduce the mass-sensitivity study.
 - `far-field` reruns the Example 1 mixed-integer optimization workflow across the selected FEMA P695 far-field records after scaling them to the target spectral acceleration.
 - `all` runs `example1`, `example2`, `mass-sweep`, and `far-field` in sequence.
+- `estimate-upgrade` reads a deflection table such as `results/tables/example1_table3.csv` or `results/tables/example2_table11.csv` and searches for the column area scale factor `s` that makes the uncontrolled building match the chosen TMD response using the in-repo Newmark solver.
 
 Common options:
 
 - `--profile {fast,full}` for optimization-heavy workflows
 - `--backend {auto,numpy,opensees}`
 - `--no-progress` to disable `tqdm` output
+
+`estimate-upgrade` has its own options:
+
+- `--target-column` to choose the controlled-response column from the table. If omitted, the first non-`without_tmd` column is used.
+- `--s-min`, `--s-max`, `--coarse-steps`, `--refine-steps`, and `--refine-rounds` to control the scalar search over `s`
+- `--upgrade-mass-cost-usd-per-kg` and `--upgrade-fixed-cost-usd` to tune the structural-upgrade cost proxy
+- `--tmd-mass-ton`, `--tmd-stiffness-kn-per-m`, and `--tmd-damping-kns-per-m` to override the TMD cost inputs when you do not want the command to infer them from saved results
 
 Backend behavior:
 
@@ -136,6 +146,21 @@ Run the bundled suite:
 ```bash
 uv run python -m tmd run all --profile fast --backend numpy
 ```
+
+Estimate the equivalent structural upgrade for a saved displacement table:
+
+```bash
+uv run python -m tmd estimate-upgrade example1 results/tables/example1_table3.csv --target-column gahpw
+uv run python -m tmd estimate-upgrade example2 results/tables/example2_table11.csv --target-column gahpw
+```
+
+The structural-upgrade search uses the explicit scaling assumptions:
+
+- `M(s) = s M0`
+- `K(s) = s^2 K0`
+- `C(s) = s^1.5 C0`
+
+The command writes comparison and search CSVs under `results/tables/` and prints a JSON summary including the matched `s`, error metrics, added structural mass, structural-upgrade cost proxy, inferred TMD cost when available, and the estimated cost savings.
 
 The CLI prints JSON summaries to stdout and writes generated artifacts under `results/`.
 

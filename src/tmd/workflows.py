@@ -1,3 +1,4 @@
+import json
 import math
 import os
 import tomllib
@@ -5,16 +6,20 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import replace
 from functools import lru_cache
 from pathlib import Path
+import re
 
 import numpy as np
+import pandas as pd
 from tqdm.auto import tqdm
 
 from .backends import analyze_with_backend
 from .examples import get_example_config, with_tmd_mass
+from .integration import newmark_linear
 from .io import load_record
+from .models import TON_TO_KG, build_scaled_uncontrolled_mck
 from .optimizers import OptimizerConfig, run_optimizer
 from .reference import get_reference_params
-from .reporting import publish_run
+from .reporting import ensure_result_dirs, publish_run, write_csv
 from .spectra import (
     fundamental_period,
     pseudo_spectral_acceleration,
@@ -550,7 +555,318 @@ def run_far_field(
 
 
 def publish_simple_table(stem: str, rows: list[dict[str, object]]) -> None:
-    from .reporting import ensure_result_dirs, write_csv
-
     paths = ensure_result_dirs(ROOT)
     write_csv(rows, paths["tables"] / f"{stem}.csv")
+
+
+def _load_target_deflection_table(
+    path: Path, target_column: str | None = None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, str]:
+    frame = pd.read_csv(path)
+    required = {"story", "without_tmd"}
+    missing = required.difference(frame.columns)
+    if missing:
+        missing_list = ", ".join(sorted(missing))
+        raise ValueError(f"Deflection table is missing required columns: {missing_list}")
+
+    frame = frame[frame["story"].astype(str).str.lower() != "mean"].copy()
+    frame["story"] = pd.to_numeric(frame["story"], errors="raise").astype(int)
+    frame = frame.sort_values("story")
+
+    candidate_columns = [
+        column for column in frame.columns if column not in {"story", "without_tmd"}
+    ]
+    if not candidate_columns:
+        raise ValueError(
+            "Deflection table must contain at least one controlled-response column."
+        )
+
+    selected = target_column or candidate_columns[0]
+    if selected not in frame.columns:
+        choices = ", ".join(candidate_columns)
+        raise ValueError(
+            f"Target column '{selected}' was not found in the table. Choices: {choices}"
+        )
+
+    return (
+        frame["story"].to_numpy(dtype=int),
+        frame["without_tmd"].to_numpy(dtype=float),
+        frame[selected].to_numpy(dtype=float),
+        selected,
+    )
+
+
+def _gather_gahpw_params_from_manifest(example_name: str) -> TMDParameters | None:
+    path = ROOT / "results/metadata/run_manifest.json"
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if payload.get("example") != example_name:
+        return None
+
+    optimization = payload.get("optimization")
+    if isinstance(optimization, dict):
+        position = optimization.get("best_position")
+        if isinstance(position, list) and len(position) >= 4:
+            return TMDParameters(
+                mass_ton=float(position[1]),
+                stiffness_kn_per_m=float(position[2]),
+                damping_kns_per_m=float(position[3]),
+                installation_floor=int(np.rint(float(position[0]))),
+            )
+
+    optimizations = payload.get("optimizations")
+    if isinstance(optimizations, dict):
+        gahpw = optimizations.get("gahpw")
+        if isinstance(gahpw, dict):
+            position = gahpw.get("best_position")
+            if isinstance(position, list) and len(position) >= 4:
+                return TMDParameters(
+                    mass_ton=float(position[1]),
+                    stiffness_kn_per_m=float(position[2]),
+                    damping_kns_per_m=float(position[3]),
+                    installation_floor=int(np.rint(float(position[0]))),
+                )
+    return None
+
+
+def _gather_gahpw_params_from_report(example_name: str) -> TMDParameters | None:
+    path = ROOT / "results/summary/report.md"
+    if not path.exists():
+        return None
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    if f"# Run Summary: {example_name}" not in content:
+        return None
+
+    match = re.search(
+        r"-\s+GAHPW:\s+best=.*?,\s+floor=(?P<floor>\d+),\s+mass=(?P<mass>[0-9.]+),\s+kd=(?P<kd>[0-9.]+),\s+cd=(?P<cd>[0-9.]+)",
+        content,
+    )
+    if match is None:
+        return None
+    return TMDParameters(
+        mass_ton=float(match.group("mass")),
+        stiffness_kn_per_m=float(match.group("kd")),
+        damping_kns_per_m=float(match.group("cd")),
+        installation_floor=int(match.group("floor")),
+    )
+
+
+def _infer_tmd_params(
+    example_name: str, target_column: str
+) -> tuple[TMDParameters | None, str | None]:
+    if target_column in {"pso", "woa", "hpw"}:
+        return get_reference_params(example_name, target_column), "paper_reference"
+    if target_column == "gahpw":
+        manifest_params = _gather_gahpw_params_from_manifest(example_name)
+        if manifest_params is not None:
+            return manifest_params, "results_manifest"
+        report_params = _gather_gahpw_params_from_report(example_name)
+        if report_params is not None:
+            return report_params, "summary_report"
+    return None, None
+
+
+def _scaled_response(
+    config: BuildingConfig, record, area_scale_factor: float
+) -> DynamicResponse:
+    return newmark_linear(
+        *build_scaled_uncontrolled_mck(config, area_scale_factor),
+        record,
+    )
+
+
+def _profile_match_metrics(
+    simulated: np.ndarray, target: np.ndarray
+) -> tuple[float, float, float]:
+    residual = simulated - target
+    scale = np.maximum(np.abs(target), 1.0e-12)
+    score = float(np.sqrt(np.mean((residual / scale) ** 2)))
+    mean_abs_error = float(np.mean(np.abs(residual)))
+    max_abs_error = float(np.max(np.abs(residual)))
+    return score, mean_abs_error, max_abs_error
+
+
+def estimate_equivalent_upgrade(
+    name: str,
+    table_path: str | Path,
+    *,
+    target_column: str | None = None,
+    s_min: float = 1.0,
+    s_max: float = 4.0,
+    coarse_steps: int = 81,
+    refine_steps: int = 41,
+    refine_rounds: int = 3,
+    upgrade_mass_cost_usd_per_kg: float = 8.0,
+    upgrade_fixed_cost_usd: float = 0.0,
+    tmd_params: TMDParameters | None = None,
+) -> dict[str, object]:
+    if s_min <= 0.0 or s_max <= 0.0:
+        raise ValueError("Search bounds for s must be positive.")
+    if s_min > s_max:
+        raise ValueError("s_min must be less than or equal to s_max.")
+    if coarse_steps < 2 or refine_steps < 2:
+        raise ValueError("Search step counts must be at least 2.")
+    if refine_rounds < 0:
+        raise ValueError("refine_rounds must be non-negative.")
+
+    config = get_example_config(name)
+    record = _load_example_record(config)
+    stories, baseline, target, selected_column = _load_target_deflection_table(
+        Path(table_path), target_column=target_column
+    )
+    if len(stories) != config.n_stories:
+        raise ValueError(
+            f"Deflection table has {len(stories)} stories but {name} expects {config.n_stories}."
+        )
+
+    inferred_params_source = None
+    if tmd_params is None:
+        tmd_params, inferred_params_source = _infer_tmd_params(name, selected_column)
+
+    evaluations: dict[float, dict[str, object]] = {}
+    lower = s_min
+    upper = s_max
+    best: dict[str, object] | None = None
+
+    for round_index in range(refine_rounds + 1):
+        steps = coarse_steps if round_index == 0 else refine_steps
+        for area_scale_factor in np.linspace(lower, upper, steps):
+            s_value = float(area_scale_factor)
+            candidate = evaluations.get(s_value)
+            if candidate is None:
+                response = _scaled_response(config, record, s_value)
+                score, mean_abs_error, max_abs_error = _profile_match_metrics(
+                    response.peak_story_displacements_m,
+                    target,
+                )
+                candidate = {
+                    "s": s_value,
+                    "score": score,
+                    "mean_abs_error_m": mean_abs_error,
+                    "max_abs_error_m": max_abs_error,
+                    "global_peak_m": float(np.max(response.peak_story_displacements_m)),
+                    "top_story_peak_m": float(response.peak_story_displacements_m[-1]),
+                    "response": response,
+                }
+                evaluations[s_value] = candidate
+            if best is None or float(candidate["score"]) < float(best["score"]):
+                best = candidate
+
+        assert best is not None
+        spacing = (upper - lower) / max(steps - 1, 1)
+        half_window = max(4.0 * spacing, 1.0e-6)
+        lower = max(s_min, float(best["s"]) - half_window)
+        upper = min(s_max, float(best["s"]) + half_window)
+
+    assert best is not None
+    best_response = best["response"]
+    matched = best_response.peak_story_displacements_m
+
+    comparison_rows: list[dict[str, object]] = []
+    for story, baseline_value, target_value, matched_value in zip(
+        stories,
+        baseline,
+        target,
+        matched,
+        strict=True,
+    ):
+        abs_error = abs(float(matched_value) - float(target_value))
+        rel_error = abs_error / max(abs(float(target_value)), 1.0e-12)
+        comparison_rows.append(
+            {
+                "story": int(story),
+                "without_tmd": float(baseline_value),
+                "target": float(target_value),
+                "matched": float(matched_value),
+                "abs_error_m": abs_error,
+                "rel_error": rel_error,
+            }
+        )
+
+    search_rows = [
+        {
+            "s": float(candidate["s"]),
+            "score": float(candidate["score"]),
+            "mean_abs_error_m": float(candidate["mean_abs_error_m"]),
+            "max_abs_error_m": float(candidate["max_abs_error_m"]),
+            "global_peak_m": float(candidate["global_peak_m"]),
+            "top_story_peak_m": float(candidate["top_story_peak_m"]),
+        }
+        for candidate in sorted(evaluations.values(), key=lambda item: float(item["s"]))
+    ]
+
+    output_stem = f"{name}_{selected_column}_equivalent_upgrade"
+    paths = ensure_result_dirs(ROOT)
+    comparison_path = write_csv(
+        comparison_rows,
+        paths["tables"] / f"{output_stem}_comparison.csv",
+    )
+    search_path = write_csv(
+        search_rows,
+        paths["tables"] / f"{output_stem}_search.csv",
+    )
+
+    base_mass_ton = float(sum(config.story_masses_ton))
+    added_mass_ton = max(float(best["s"]) - 1.0, 0.0) * base_mass_ton
+    added_mass_kg = added_mass_ton * TON_TO_KG
+    upgrade_cost_estimate_usd = (
+        upgrade_fixed_cost_usd + upgrade_mass_cost_usd_per_kg * added_mass_kg
+    )
+
+    tmd_cost_estimate_usd = None
+    cost_savings_usd = None
+    if tmd_params is not None:
+        tmd_cost_estimate_usd = float(_damper_cost(tmd_params))
+        cost_savings_usd = float(upgrade_cost_estimate_usd - tmd_cost_estimate_usd)
+
+    hit_lower_bound = math.isclose(float(best["s"]), s_min, rel_tol=0.0, abs_tol=1.0e-9)
+    hit_upper_bound = math.isclose(float(best["s"]), s_max, rel_tol=0.0, abs_tol=1.0e-9)
+
+    notes = [
+        "solver: newmark_linear",
+        "matrix scaling assumptions: M(s)=s*M0, K(s)=s^2*K0, C(s)=s^1.5*C0",
+        "search objective: minimize RMS relative error between target and scaled-building peak story displacements",
+        f"structural upgrade cost proxy: fixed + ({upgrade_mass_cost_usd_per_kg:.3f} USD/kg) * added mass",
+    ]
+    if inferred_params_source is None and tmd_params is None:
+        notes.append(
+            "TMD cost was not estimated because no TMD parameters were supplied or inferred from saved results."
+        )
+    elif inferred_params_source is not None:
+        notes.append(f"TMD cost parameters inferred from: {inferred_params_source}")
+    if hit_lower_bound or hit_upper_bound:
+        notes.append("Best s landed on a search bound; widen the range if you need a broader estimate.")
+
+    return {
+        "mode": "estimate_upgrade",
+        "example": config.name,
+        "record": record.name,
+        "table_path": str(Path(table_path)),
+        "target_column": selected_column,
+        "matched_scale_factor": float(best["s"]),
+        "score": float(best["score"]),
+        "mean_abs_error_m": float(best["mean_abs_error_m"]),
+        "max_abs_error_m": float(best["max_abs_error_m"]),
+        "target_global_peak_m": float(np.max(target)),
+        "matched_global_peak_m": float(np.max(matched)),
+        "target_top_story_peak_m": float(target[-1]),
+        "matched_top_story_peak_m": float(matched[-1]),
+        "base_building_mass_ton": base_mass_ton,
+        "equivalent_building_mass_ton": float(best["s"]) * base_mass_ton,
+        "added_building_mass_ton": added_mass_ton,
+        "upgrade_cost_estimate_usd": float(upgrade_cost_estimate_usd),
+        "tmd_cost_estimate_usd": tmd_cost_estimate_usd,
+        "estimated_cost_savings_usd": cost_savings_usd,
+        "generated": {
+            "comparison_table": str(comparison_path),
+            "search_table": str(search_path),
+        },
+        "notes": notes,
+    }
